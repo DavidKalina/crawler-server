@@ -14,6 +14,7 @@
     "axios": "^1.7.9",
     "bullmq": "^5.34.1",
     "cheerio": "^1.0.0",
+    "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "robots-parser": "^3.0.1",
     "uuid": "^11.0.3"

@@ -8,6 +8,10 @@ import { v4 as uuidv4 } from "uuid";
 import { Database } from "./database.types";
 import { ContentExtractor } from "./classes/ContentExtractor";
 import { ExtractedContent } from "./types/contentTypes";
+import dotenv from "dotenv";
+import { UrlValidator } from "./utils/UrlValidator";
+
+dotenv.config();
 
 // Types
 interface CrawlJob {
@@ -42,24 +46,6 @@ const crawlQueue = new Queue("crawl-jobs", {
   },
 });
 
-// Utility functions
-const isValidUrl = (url: string): boolean => {
-  try {
-    new URL(url);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-const normalizeUrl = (url: string, baseUrl: string): string => {
-  try {
-    return new URL(url, baseUrl).href;
-  } catch {
-    return "";
-  }
-};
-
 // Core crawling function
 export async function crawlPage(job: CrawlJob): Promise<CrawlResult> {
   try {
@@ -89,10 +75,7 @@ export async function crawlPage(job: CrawlJob): Promise<CrawlResult> {
     const links: string[] = [];
     if (job.currentDepth < job.maxDepth) {
       extractedContent.structuredContent.links.forEach((link) => {
-        const normalizedUrl = normalizeUrl(link.href, job.url);
-        if (normalizedUrl && isValidUrl(normalizedUrl)) {
-          links.push(normalizedUrl);
-        }
+        links.push(link.href);
       });
     }
 
@@ -113,7 +96,7 @@ export async function crawlPage(job: CrawlJob): Promise<CrawlResult> {
 app.post("/api/crawl", async (req, res) => {
   const { startUrl, maxDepth = 3 } = req.body;
 
-  if (!startUrl || !isValidUrl(startUrl)) {
+  if (!startUrl || !UrlValidator.isValidUrl(startUrl)) {
     res.status(400).json({ error: "Invalid start URL" });
   }
 
