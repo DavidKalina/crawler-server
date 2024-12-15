@@ -1,9 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { Worker } from "bullmq";
 import dotenv from "dotenv";
-import { cleanupCrawlJob, crawlPage } from "src";
 import { Database } from "src/database.types";
 import { crawlQueue } from "src/queues/crawlQueue";
+import { cleanupCrawlJob, crawlPage } from "src/utils/crawlPage";
 import { UrlValidator } from "src/utils/UrlValidator";
 dotenv.config(); // Add this at the top of bullWorkers.ts
 
