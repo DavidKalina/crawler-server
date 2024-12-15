@@ -7,7 +7,7 @@ import {
   TableNode,
   LinkNode,
 } from "src/types/contentTypes";
-import domainGuard from "src/utils/DomainGuard";
+import { domainGuard } from "src/utils/DomainGuard";
 import { UrlValidator } from "src/utils/UrlValidator";
 
 // extractors/BaseExtractor.ts
@@ -18,7 +18,7 @@ export abstract class BaseExtractor {
     this.$ = cheerioInstance;
   }
 
-  abstract extract(): any;
+  abstract extract(base: string): any;
 
   protected sanitizeText(text: string): string {
     return text
@@ -48,14 +48,14 @@ export class RawTextExtractor extends BaseExtractor {
 
 // extractors/StructuredContentExtractor.ts
 export class StructuredContentExtractor extends BaseExtractor {
-  extract(): StructuredContent {
+  extract(base: string): StructuredContent {
     return {
       title: this.extractTitle(),
       headings: this.extractHeadings(),
       paragraphs: this.extractParagraphs(),
       lists: this.extractLists(),
       tables: this.extractTables(),
-      links: this.extractValidLinks(this.extractLinks()),
+      links: this.extractValidLinks(this.extractLinks(), base),
     };
   }
 
@@ -184,9 +184,9 @@ export class StructuredContentExtractor extends BaseExtractor {
     return links;
   }
 
-  private extractValidLinks(links: LinkNode[]): LinkNode[] {
+  private extractValidLinks(links: LinkNode[], base: string): LinkNode[] {
     return links.filter((link) => {
-      const normalizedUrl = UrlValidator.normalizeUrl(link.href);
+      const normalizedUrl = UrlValidator.normalizeUrl(link.href, base);
       return normalizedUrl && domainGuard.isUrlAllowed(normalizedUrl);
     });
   }

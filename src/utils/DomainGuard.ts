@@ -1,13 +1,48 @@
+// DomainGuard.ts
 import { DomainConfig } from "src/types/domainGuard";
 
 export class DomainGuard {
-  private readonly config: DomainConfig;
+  private config: DomainConfig;
+  private static instance: DomainGuard;
 
-  constructor(config: DomainConfig) {
+  private constructor() {
+    // Start with an empty config
     this.config = {
-      ...config,
-      allowedDomains: config.allowedDomains.map((domain) => this.normalizeDomain(domain)),
+      allowSubdomains: true,
+      ignorePaths: false,
+      allowedDomains: [],
+      excludedPaths: ["/admin", "/private", "/wp-admin", "/login", "/logout"],
     };
+  }
+
+  static getInstance(): DomainGuard {
+    if (!DomainGuard.instance) {
+      DomainGuard.instance = new DomainGuard();
+    }
+    return DomainGuard.instance;
+  }
+
+  configure(config: Partial<DomainConfig>) {
+    this.config = {
+      ...this.config,
+      ...config,
+      // Always normalize allowed domains
+      allowedDomains: config.allowedDomains
+        ? config.allowedDomains.map((domain) => this.normalizeDomain(domain))
+        : this.config.allowedDomains,
+    };
+  }
+
+  configureForUrl(url: string) {
+    try {
+      const urlObj = new URL(url);
+      const domain = this.normalizeDomain(urlObj.hostname);
+      this.configure({
+        allowedDomains: [domain],
+      });
+    } catch (error) {
+      console.error(`Invalid URL provided for configuration: ${url}`, error);
+    }
   }
 
   /**
@@ -17,6 +52,11 @@ export class DomainGuard {
     try {
       const urlObj = new URL(url);
       const domain = this.normalizeDomain(urlObj.hostname);
+
+      // If no allowed domains are configured, only restrict to the same domain as URL
+      if (this.config.allowedDomains.length === 0) {
+        return true; // Allow all domains if none specified
+      }
 
       // Check if URL matches allowed domains
       const isDomainAllowed = this.config.allowedDomains.some((allowedDomain) => {
@@ -31,9 +71,11 @@ export class DomainGuard {
       }
 
       // Check excluded paths if configured
-      if (this.config.excludedPaths?.length) {
+      if (this.config.excludedPaths?.length && !this.config.ignorePaths) {
         const path = urlObj.pathname;
-        return !this.config.excludedPaths.some((excludedPath) => path.startsWith(excludedPath));
+        return !this.config.excludedPaths.some((excludedPath) =>
+          path.toLowerCase().startsWith(excludedPath.toLowerCase())
+        );
       }
 
       return true;
@@ -43,9 +85,6 @@ export class DomainGuard {
     }
   }
 
-  /**
-   * Get the effective domain for a given URL
-   */
   getEffectiveDomain(url: string): string | null {
     try {
       const urlObj = new URL(url);
@@ -55,9 +94,6 @@ export class DomainGuard {
     }
   }
 
-  /**
-   * Check if two URLs belong to the same allowed domain
-   */
   isSameAllowedDomain(url1: string, url2: string): boolean {
     const domain1 = this.getEffectiveDomain(url1);
     const domain2 = this.getEffectiveDomain(url2);
@@ -66,15 +102,7 @@ export class DomainGuard {
       return false;
     }
 
-    // If subdomains are allowed, check if they share the same base domain
-    if (this.config.allowSubdomains) {
-      const baseAllowedDomain = this.config.allowedDomains.find(
-        (domain) => domain1.endsWith(domain) && domain2.endsWith(domain)
-      );
-      return !!baseAllowedDomain;
-    }
-
-    return domain1 === domain2 && this.isUrlAllowed(url1);
+    return domain1 === domain2;
   }
 
   private normalizeDomain(domain: string): string {
@@ -85,11 +113,7 @@ export class DomainGuard {
   }
 }
 
-const domainGuard = new DomainGuard({
-  allowSubdomains: true,
-  ignorePaths: false,
-  allowedDomains: ["example.com"],
-  excludedPaths: ["/admin", "/private"],
-});
+// Export a singleton instance
+export const domainGuard = DomainGuard.getInstance();
 
-export default domainGuard;
+// Don't export default instance anymore
