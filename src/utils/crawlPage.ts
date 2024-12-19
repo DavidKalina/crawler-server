@@ -1,12 +1,16 @@
-import { CrawlDebugInfo, CrawlJob, CrawlResult } from "src";
+import { createClient } from "@supabase/supabase-js";
 import axios from "axios";
-import robotsParser from "robots-parser";
+import * as cheerio from "cheerio";
+import { CrawlDebugInfo, CrawlJob, CrawlResult } from "src";
 import { ContentExtractor } from "src/classes/ContentExtractor";
+import { Database } from "src/database.types";
+import { DuplicateUrlError, RobotsNotAllowedError } from "src/errors/crawler/CrawlerErrorTypes";
+import { consultRobotsTxt } from "./consultRobotsTxt";
 import { domainGuard } from "./DomainGuard";
 import { UrlValidator } from "./UrlValidator";
-import * as cheerio from "cheerio";
-import { createClient } from "@supabase/supabase-js";
-import { Database } from "src/database.types";
+import { validateCrawlRequest } from "./validateCrawlRequest";
+import { verifyContentExtraction } from "./verifyContentExtraction";
+import { EMPTY_CRAWL_RESULT } from "src/constants/emptyCrawlResults";
 
 const supabase = createClient<Partial<Database>>(
   process.env.SUPABASE_URL!,
@@ -23,44 +27,18 @@ export async function crawlPage(job: CrawlJob): Promise<CrawlResult> {
     timestamp: new Date().toISOString(),
   };
 
-  // Initialize tracking for this job if needed
   if (!crawledUrls.has(jobId)) {
     crawledUrls.set(jobId, new Set());
   }
 
   try {
-    // Check if URL was already crawled
-    if (crawledUrls.get(jobId)?.has(job.url)) {
-      throw new Error("URL already crawled");
-    }
-
-    // Validate and normalize URL
-    const normalizedUrl = UrlValidator.normalizeUrl(job.url);
-    if (!normalizedUrl) {
-      throw new Error("Invalid URL format");
-    }
-
-    // Check domain restrictions
-    if (!domainGuard.isUrlAllowed(normalizedUrl)) {
-      throw new Error("URL domain not allowed");
-    }
-
-    // Mark URL as crawled
+    const normalizedUrl = validateCrawlRequest(job, crawledUrls);
     crawledUrls.get(jobId)?.add(normalizedUrl);
 
-    // Fetch robots.txt first
-    const robotsUrl = new URL("/robots.txt", normalizedUrl).href;
-    let robotsAllowed = true;
-    try {
-      const robotsResponse = await axios.get(robotsUrl);
-      const robots = robotsParser(robotsUrl, robotsResponse.data);
-      robotsAllowed = !!robots.isAllowed(normalizedUrl);
-    } catch (error) {
-      console.warn(`Could not fetch robots.txt for ${normalizedUrl}, proceeding with crawl`);
-    }
+    const isRobotsAllowed = await consultRobotsTxt(normalizedUrl);
 
-    if (!robotsAllowed) {
-      throw new Error("URL is not allowed by robots.txt");
+    if (!isRobotsAllowed) {
+      throw new RobotsNotAllowedError(normalizedUrl);
     }
 
     const response = await axios.get(normalizedUrl, {
@@ -105,15 +83,17 @@ export async function crawlPage(job: CrawlJob): Promise<CrawlResult> {
     try {
       const contentExtractor = new ContentExtractor($, job.url);
       extractedContent = contentExtractor.extract();
-      debugInfo.extractionSuccess = true;
-      debugInfo.contentStats = {
-        rawTextLength: extractedContent.rawText?.length,
-        headingsCount: extractedContent.structuredContent.headings?.length,
-        paragraphsCount: extractedContent.structuredContent.paragraphs?.length,
-        listsCount: extractedContent.structuredContent.lists?.length,
-        tablesCount: extractedContent.structuredContent.tables?.length,
-        linksCount: extractedContent.structuredContent.links?.length,
-      };
+      Object.assign(debugInfo, {
+        extractionSuccess: true,
+        contentStats: {
+          rawTextLength: extractedContent.rawText?.length,
+          headingsCount: extractedContent.structuredContent.headings?.length,
+          paragraphsCount: extractedContent.structuredContent.paragraphs?.length,
+          listsCount: extractedContent.structuredContent.lists?.length,
+          tablesCount: extractedContent.structuredContent.tables?.length,
+          linksCount: extractedContent.structuredContent.links?.length,
+        },
+      });
     } catch (error) {
       debugInfo.extractionSuccess = false;
       debugInfo.error = `Content extraction failed: ${error.message}`;
@@ -129,9 +109,7 @@ export async function crawlPage(job: CrawlJob): Promise<CrawlResult> {
     });
 
     // Verify content before returning
-    if (!extractedContent.rawText && extractedContent.structuredContent.paragraphs.length === 0) {
-      throw new Error("Extraction succeeded but no content was extracted");
-    }
+    verifyContentExtraction(extractedContent);
     // Process and filter links
     const links: string[] = [];
     if (job.currentDepth < job.maxDepth) {
@@ -172,26 +150,8 @@ export async function crawlPage(job: CrawlJob): Promise<CrawlResult> {
       depth: job.currentDepth,
     };
   } catch (error) {
-    // Clean up tracking on terminal error
-    if (error.message === "URL already crawled") {
-      return {
-        url: job.url,
-        title: null,
-        content: null,
-        extractedContent: {
-          rawText: "",
-          structuredContent: {
-            title: null,
-            headings: [],
-            paragraphs: [],
-            lists: [],
-            tables: [],
-            links: [],
-          },
-        },
-        links: [],
-        depth: job.currentDepth,
-      };
+    if (error instanceof DuplicateUrlError) {
+      return { ...EMPTY_CRAWL_RESULT, url: job.url, depth: job.currentDepth };
     }
     throw error;
   }

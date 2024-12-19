@@ -55,9 +55,9 @@ npm run dev
 curl -X POST http://localhost:3000/api/crawl \
   -H "Content-Type: application/json" \
   -d '{
-    "startUrl": "https://example.com",
+    "startUrl": "https://www.oeockent.org",
     "maxDepth": 3,
-    "allowedDomains": ["example.com"]
+    "allowedDomains": ["www.oeockent.org"]
   }'
 ```
 
