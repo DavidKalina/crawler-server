@@ -1,17 +1,11 @@
-import { createClient } from "@supabase/supabase-js";
 import { Worker } from "bullmq";
 import dotenv from "dotenv";
-import { Database } from "src/database.types";
+import { WORKER_CONNECTION_CONFIG } from "src/constants/workerConnectionConfig";
+import { supabase } from "src/lib/supabaseClient";
 import { crawlQueue } from "src/queues/crawlQueue";
 import { cleanupCrawlJob, crawlPage } from "src/utils/crawlPage";
 import { UrlValidator } from "src/utils/UrlValidator";
 dotenv.config(); // Add this at the top of bullWorkers.ts
-
-// Initialize Supabase client
-const supabase = createClient<Partial<Database>>(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_KEY!
-);
 
 // Keep track of active jobs per crawl
 const activeJobsTracker = new Map<string, Set<string>>();
@@ -128,19 +122,7 @@ const worker = new Worker(
       throw error;
     }
   },
-  {
-    connection: {
-      host: process.env.REDIS_HOST || "localhost",
-      port: parseInt(process.env.REDIS_PORT || "6379"),
-    },
-    removeOnComplete: {
-      age: 24 * 3600,
-      count: 1000,
-    },
-    removeOnFail: {
-      age: 7 * 24 * 3600,
-    },
-  }
+  WORKER_CONNECTION_CONFIG
 );
 
 // bullWorkers.ts - Update the completion handler
@@ -178,45 +160,6 @@ worker.on("completed", async (job) => {
   }
 });
 
-// Also update the failure handler
-worker.on("failed", async (job, error) => {
-  if (job) {
-    const crawlId = job.data.id;
-    const jobId = job.id!;
-    const activeJobs = activeJobsTracker.get(crawlId);
-
-    if (activeJobs) {
-      // Remove this job from tracking
-      activeJobs.delete(jobId);
-
-      // If no more active jobs, mark crawl as failed and clean up
-      if (activeJobs.size === 0) {
-        await supabase
-          .from("web_crawl_jobs")
-          .update({
-            status: "failed",
-            processing_stats: {
-              last_error: error.message,
-              failed_at: new Date().toISOString(),
-            },
-          })
-          .eq("id", crawlId);
-
-        // Clean up trackers
-        activeJobsTracker.delete(crawlId);
-        cleanupCrawlJob(crawlId); // Add this line
-      }
-    }
-  }
-});
-worker.on("error", (error) => {
-  console.error("Worker error:", error);
-});
-
-worker.on("active", (job) => {
-  console.log("Job asd:", job.id, "for crawl:", job.data.id);
-});
-// Handle job failures
 worker.on("failed", async (job, error) => {
   if (job) {
     const crawlId = job.data.id;
@@ -242,26 +185,24 @@ worker.on("failed", async (job, error) => {
 
         // Clean up tracker
         activeJobsTracker.delete(crawlId);
+        cleanupCrawlJob(crawlId); // Add this line
       }
     }
   }
-});
-
-// Add these logs
-worker.on("ready", () => {
-  console.log("Worker is ready and connected to Redis!");
 });
 
 worker.on("error", (error) => {
   console.error("Worker error:", error);
 });
 
-worker.on("failed", (job, error) => {
-  console.error("Job failed:", job?.id, error);
-});
-
 worker.on("active", (job) => {
-  console.log("Processing job:", job.id);
+  console.log("Job asd:", job.id, "for crawl:", job.data.id);
+});
+// Handle job failures
+
+// Add these logs
+worker.on("ready", () => {
+  console.log("Worker is ready and connected to Redis!");
 });
 
 export default worker;
