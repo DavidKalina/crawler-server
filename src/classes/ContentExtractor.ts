@@ -1,5 +1,6 @@
 import { CheerioAPI } from "cheerio";
-import { RawTextExtractor, StructuredContentExtractor } from "src/extractors";
+import { RawTextExtractor } from "src/extractors/RawTextExtractor";
+import { StructuredContentExtractor } from "src/extractors/StructuredContentExtractor";
 import { ExtractedContent } from "src/types/contentTypes";
 
 // ContentExtractor.ts
