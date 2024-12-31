@@ -3,7 +3,6 @@ import { JobType } from "bullmq";
 import dotenv from "dotenv";
 import express from "express";
 import { v4 as uuidv4 } from "uuid";
-import { Database } from "./database.types";
 import { crawlQueue } from "./queues/crawlQueue";
 import { ExtractedContent } from "./types/contentTypes";
 import { domainGuard } from "./utils/DomainGuard";
@@ -48,7 +47,7 @@ export interface CrawlDebugInfo {
 }
 
 interface EnhancedJobStatus {
-  databaseJob: Database["public"]["Tables"]["web_crawl_jobs"]["Row"] | null;
+  databaseJob: any;
   queueInfo: {
     mainJob: QueueJobInfo | null;
     childJobs: QueueJobInfo[];
@@ -73,10 +72,7 @@ export const app = express();
 app.use(express.json());
 
 // Initialize Supabase client
-const supabase = createClient<Partial<Database>>(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_KEY!
-);
+const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_KEY!);
 
 // Add cleanup function
 
