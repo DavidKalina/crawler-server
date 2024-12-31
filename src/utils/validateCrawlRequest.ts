@@ -1,11 +1,11 @@
-import { CrawlJob } from "src";
 import { UrlValidator } from "./UrlValidator";
 import { domainGuard } from "./DomainGuard";
 import {
-  DomainNotAllowedError,
   DuplicateUrlError,
   InvalidUrlFormatError,
-} from "src/errors/crawler/CrawlerErrorTypes";
+  DomainNotAllowedError,
+} from "../errors/crawler/CrawlerErrorTypes";
+import { CrawlJob } from "..";
 
 export function validateCrawlRequest(job: CrawlJob, crawledUrls: Map<string, Set<string>>) {
   if (crawledUrls.get(job.id)?.has(job.url)) {

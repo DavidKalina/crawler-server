@@ -1,3 +1,4 @@
+import { BaseExtractor } from ".";
 import {
   StructuredContent,
   HeadingNode,
@@ -5,10 +6,9 @@ import {
   ListNode,
   TableNode,
   LinkNode,
-} from "src/types/contentTypes";
-import { domainGuard } from "src/utils/DomainGuard";
-import { UrlValidator } from "src/utils/UrlValidator";
-import { BaseExtractor } from ".";
+} from "../types/contentTypes";
+import { domainGuard } from "../utils/DomainGuard";
+import { UrlValidator } from "../utils/UrlValidator";
 
 export class StructuredContentExtractor extends BaseExtractor {
   extract(base: string): StructuredContent {

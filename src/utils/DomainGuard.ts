@@ -1,5 +1,6 @@
 // DomainGuard.ts
-import { DomainConfig } from "src/types/domainGuard";
+
+import { DomainConfig } from "../types/domainGuard";
 
 export class DomainGuard {
   private config: DomainConfig;

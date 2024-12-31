@@ -1,10 +1,11 @@
 import { Worker } from "bullmq";
+import { WORKER_CONNECTION_CONFIG } from "../constants/workerConnectionConfig";
 import dotenv from "dotenv";
-import { WORKER_CONNECTION_CONFIG } from "src/constants/workerConnectionConfig";
-import { supabase } from "src/lib/supabaseClient";
-import { crawlQueue } from "src/queues/crawlQueue";
-import { cleanupCrawlJob, crawlPage } from "src/utils/crawlPage";
-import { UrlValidator } from "src/utils/UrlValidator";
+import { supabase } from "../lib/supabaseClient";
+import { crawlQueue } from "../queues/crawlQueue";
+import { crawlPage, cleanupCrawlJob } from "../utils/crawlPage";
+import { UrlValidator } from "../utils/UrlValidator";
+
 dotenv.config(); // Add this at the top of bullWorkers.ts
 
 // Keep track of active jobs per crawl

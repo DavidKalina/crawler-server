@@ -1,16 +1,18 @@
 import axios from "axios";
-import { CrawlDebugInfo, CrawlJob, CrawlResult } from "src";
-import { ContentExtractor } from "src/classes/ContentExtractor";
-import { CRAWL_REQUEST_CONFIG } from "src/constants/crawlRequestConfig";
-import { EMPTY_CRAWL_RESULT } from "src/constants/emptyCrawlResults";
-import { DuplicateUrlError, RobotsNotAllowedError } from "src/errors/crawler/CrawlerErrorTypes";
-import { supabase } from "src/lib/supabaseClient";
+
 import { consultRobotsTxt } from "./consultRobotsTxt";
 import { domainGuard } from "./DomainGuard";
 import { loadContentIntoCheerio } from "./loadContentIntoCheerio";
 import { UrlValidator } from "./UrlValidator";
 import { validateCrawlRequest } from "./validateCrawlRequest";
 import { verifyContentExtraction } from "./verifyContentExtraction";
+
+import { CrawlJob, CrawlResult, CrawlDebugInfo } from "..";
+import { ContentExtractor } from "../classes/ContentExtractor";
+import { DuplicateUrlError, RobotsNotAllowedError } from "../errors/crawler/CrawlerErrorTypes";
+import { CRAWL_REQUEST_CONFIG } from "../constants/crawlRequestConfig";
+import { supabase } from "../lib/supabaseClient";
+import { EMPTY_CRAWL_RESULT } from "../constants/emptyCrawlResults";
 
 const crawledUrls = new Map<string, Set<string>>();
 
@@ -64,7 +66,7 @@ export async function crawlPage(job: CrawlJob): Promise<CrawlResult> {
       });
     } catch (error) {
       debugInfo.extractionSuccess = false;
-      debugInfo.error = `Content extraction failed: ${error.message}`;
+      debugInfo.error = `Content extraction failed`;
       throw error;
     }
 

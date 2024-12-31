@@ -1,7 +1,7 @@
+import { supabase } from "../lib/supabaseClient";
 import { AxiosResponse } from "axios";
 import * as cheerio from "cheerio";
-import { CrawlDebugInfo } from "src";
-import { supabase } from "src/lib/supabaseClient";
+import { CrawlDebugInfo } from "..";
 
 export async function loadContentIntoCheerio(
   jobId: string,
@@ -14,11 +14,11 @@ export async function loadContentIntoCheerio(
     return $;
   } catch (error) {
     debugInfo.cheerioLoadSuccess = false;
-    debugInfo.error = `Cheerio load failed: ${error.message}`;
+    debugInfo.error = `Cheerio load failed: ${(error as any).message}`;
     await supabase.from("crawler_logs").insert({
       crawl_job_id: jobId,
       level: "error",
-      message: `Crawl failed: ${error.message}`,
+      message: `Crawl failed: ${(error as any).message}`,
       metadata: debugInfo,
     });
     throw error;
