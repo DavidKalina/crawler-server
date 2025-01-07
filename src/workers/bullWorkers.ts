@@ -1,45 +1,59 @@
 import { Worker } from "bullmq";
 import { WORKER_CONNECTION_CONFIG } from "../constants/workerConnectionConfig";
-import dotenv from "dotenv";
 import { supabase } from "../lib/supabaseClient";
 import { crawlQueue } from "../queues/crawlQueue";
 import { crawlPage, cleanupCrawlJob } from "../utils/crawlPage";
 import { UrlValidator } from "../utils/UrlValidator";
 
-dotenv.config(); // Add this at the top of bullWorkers.ts
-
-// Keep track of active jobs per crawl
+// Keep track of active jobs and processed URLs per crawl
 const activeJobsTracker = new Map<string, Set<string>>();
+const processedUrlsTracker = new Map<string, Set<string>>();
 
-// Create a worker to process crawl jobs
 const worker = new Worker(
   "crawl-jobs",
   async (job) => {
     const crawlId = job.data.id;
     const jobId = job.id!;
+    const url = job.data.url;
+
+    console.log(`Starting job ${jobId} for URL: ${url}`);
 
     try {
       // Initialize tracking for this crawl if not exists
       if (!activeJobsTracker.has(crawlId)) {
+        console.log(`Initializing new crawl tracking for ${crawlId}`);
         activeJobsTracker.set(crawlId, new Set([jobId]));
+        processedUrlsTracker.set(crawlId, new Set());
         await supabase
           .from("web_crawl_jobs")
-          .update({ status: "running", last_processed_url: job.data.url })
+          .update({ status: "running", last_processed_url: url })
           .eq("id", crawlId);
       } else {
         activeJobsTracker.get(crawlId)?.add(jobId);
       }
 
-      // First check if this URL was already processed
-      const normalizedUrl = UrlValidator.normalizeUrl(job.data.url);
+      // Normalize URL and check if already processed
+      const normalizedUrl = UrlValidator.normalizeUrl(url);
       if (!normalizedUrl) {
+        console.log(`Invalid URL format: ${url}`);
         throw new Error("Invalid URL format");
       }
 
-      // Attempt to crawl the page
-      const result = await crawlPage(job.data);
+      const processedUrls = processedUrlsTracker.get(crawlId)!;
+      if (processedUrls.has(normalizedUrl)) {
+        console.log(`Skipping already processed URL: ${normalizedUrl}`);
+        return { skipped: true, url: normalizedUrl };
+      }
 
-      // Try to insert the page using our new upsert function
+      console.log(`Processing URL: ${normalizedUrl}`);
+      processedUrls.add(normalizedUrl);
+
+      // Attempt to crawl the page
+      console.log(`Crawling page: ${normalizedUrl}`);
+      const result = await crawlPage(job.data);
+      console.log(`Crawl completed for: ${normalizedUrl}, found ${result.links.length} links`);
+
+      // Try to insert the page
       const { data: upsertResult, error: upsertError } = await supabase.rpc("upsert_crawled_page", {
         p_url: result.url,
         p_crawl_job_id: crawlId,
@@ -50,39 +64,57 @@ const worker = new Worker(
         p_processing_status: "completed",
       });
 
-      if (upsertError) throw upsertError;
+      if (upsertError) {
+        console.error(`Upsert error for ${normalizedUrl}:`, upsertError);
+        throw upsertError;
+      }
 
-      // Only process links if this was a new page (not a duplicate)
+      // Only increment counter and process links if this was a new page
       if (upsertResult?.[0]?.inserted) {
+        console.log(`New page inserted: ${normalizedUrl}`);
+
+        // Increment total pages crawled exactly once
+        await supabase.rpc("increment_total_pages_crawled", {
+          job_id: crawlId,
+          increment_by: 1,
+        });
+
         // Add new links to the queue if within depth limit
         if (result.depth < job.data.maxDepth) {
-          const newJobs = result.links.map((url) => ({
-            id: crawlId,
-            url,
-            maxDepth: job.data.maxDepth,
-            currentDepth: result.depth + 1,
-            parentUrl: result.url,
-          }));
+          console.log(`Processing ${result.links.length} links from ${normalizedUrl}`);
 
-          // Add all new URLs to the queue and track their IDs
-          await Promise.all(
-            newJobs.map(async (jobData) => {
-              const newJob = await crawlQueue.add("crawl-jobs", jobData, {
-                removeOnComplete: true,
-                removeOnFail: false,
-              });
+          // Filter and normalize URLs synchronously
+          const newUrls = result.links
+            .map((url) => UrlValidator.normalizeUrl(url))
+            .filter(Boolean)
+            .filter((url) => !processedUrls.has(url!));
+
+          console.log(`Found ${newUrls.length} new unique URLs to process`);
+
+          // Add filtered URLs to the queue
+          for (const newUrl of newUrls) {
+            try {
+              const newJob = await crawlQueue.add(
+                "crawl-jobs",
+                {
+                  id: crawlId,
+                  url: newUrl,
+                  maxDepth: job.data.maxDepth,
+                  currentDepth: result.depth + 1,
+                  parentUrl: result.url,
+                },
+                {
+                  removeOnComplete: true,
+                  removeOnFail: false,
+                }
+              );
               activeJobsTracker.get(crawlId)?.add(newJob.id!);
-            })
-          );
+              console.log(`Added new job ${newJob.id} for URL: ${newUrl}`);
+            } catch (error) {
+              console.error(`Failed to add job for URL ${newUrl}:`, error);
+            }
+          }
         }
-
-        // Update metrics only for new pages
-        await supabase.rpc("aggregate_metrics", {
-          p_job_id: crawlId,
-          p_period: "5m",
-          p_start: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-          p_end: new Date().toISOString(),
-        });
 
         // Log successful crawl
         await supabase.from("crawler_logs").insert({
@@ -95,27 +127,21 @@ const worker = new Worker(
           },
         });
       } else {
-        // Log skipped duplicate
-        await supabase.from("crawler_logs").insert({
-          crawl_job_id: crawlId,
-          level: "info",
-          message: `Skipped duplicate URL: ${result.url}`,
-          metadata: {
-            depth: result.depth,
-            pageId: upsertResult?.[0]?.page_id,
-          },
-        });
+        console.log(`Duplicate page skipped: ${normalizedUrl}`);
       }
 
+      console.log(`Job ${jobId} completed successfully`);
       return result;
     } catch (error) {
+      console.error(`Job ${jobId} failed:`, error);
+
       // Log crawl error
       await supabase.from("crawler_logs").insert({
         crawl_job_id: crawlId,
         level: "error",
         message: `Failed to crawl: ${error}`,
         metadata: {
-          url: job.data.url,
+          url: url,
           depth: job.data.currentDepth,
         },
       });
@@ -126,26 +152,21 @@ const worker = new Worker(
   WORKER_CONNECTION_CONFIG
 );
 
-// bullWorkers.ts - Update the completion handler
+// Completion handler
 worker.on("completed", async (job) => {
   const crawlId = job.data.id;
   const jobId = job.id!;
+
+  console.log(`Handling completion for job ${jobId}`);
+
   const activeJobs = activeJobsTracker.get(crawlId);
-
   if (activeJobs) {
-    // Remove this job from tracking
     activeJobs.delete(jobId);
+    console.log(`Remaining active jobs for crawl ${crawlId}: ${activeJobs.size}`);
 
-    // Update total pages crawled
-    await supabase.rpc("jsonb_deep_merge", {
-      current: {},
-      new: {
-        total_pages_crawled: job.data.currentDepth + 1,
-      },
-    });
-
-    // If no more active jobs for this crawl, mark as completed and clean up
     if (activeJobs.size === 0) {
+      console.log(`Completing crawl ${crawlId}`);
+
       await supabase
         .from("web_crawl_jobs")
         .update({
@@ -154,9 +175,11 @@ worker.on("completed", async (job) => {
         })
         .eq("id", crawlId);
 
-      // Clean up trackers
       activeJobsTracker.delete(crawlId);
-      cleanupCrawlJob(crawlId); // Add this line
+      processedUrlsTracker.delete(crawlId);
+      cleanupCrawlJob(crawlId);
+
+      console.log(`Crawl ${crawlId} completed and cleaned up`);
     }
   }
 });
@@ -165,14 +188,15 @@ worker.on("failed", async (job, error) => {
   if (job) {
     const crawlId = job.data.id;
     const jobId = job.id!;
-    const activeJobs = activeJobsTracker.get(crawlId);
+    console.log(`Handling failure for job ${jobId}:`, error);
 
+    const activeJobs = activeJobsTracker.get(crawlId);
     if (activeJobs) {
-      // Remove this job from tracking
       activeJobs.delete(jobId);
 
-      // If no more active jobs, mark crawl as failed
       if (activeJobs.size === 0) {
+        console.log(`Marking crawl ${crawlId} as failed`);
+
         await supabase
           .from("web_crawl_jobs")
           .update({
@@ -184,9 +208,11 @@ worker.on("failed", async (job, error) => {
           })
           .eq("id", crawlId);
 
-        // Clean up tracker
         activeJobsTracker.delete(crawlId);
-        cleanupCrawlJob(crawlId); // Add this line
+        processedUrlsTracker.delete(crawlId);
+        cleanupCrawlJob(crawlId);
+
+        console.log(`Crawl ${crawlId} marked as failed and cleaned up`);
       }
     }
   }
@@ -196,12 +222,6 @@ worker.on("error", (error) => {
   console.error("Worker error:", error);
 });
 
-worker.on("active", (job) => {
-  console.log("Job asd:", job.id, "for crawl:", job.data.id);
-});
-// Handle job failures
-
-// Add these logs
 worker.on("ready", () => {
   console.log("Worker is ready and connected to Redis!");
 });

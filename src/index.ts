@@ -9,6 +9,7 @@ import { domainGuard } from "./utils/DomainGuard";
 import { UrlValidator } from "./utils/UrlValidator";
 import "./workers/bullWorkers";
 import { cleanupCrawlJob } from "./utils/crawlPage";
+import { checkQueueHealth, HealthStatus } from "./utils/checkHealth";
 console.log("Worker started and listening for jobs...");
 
 dotenv.config();
@@ -255,6 +256,168 @@ app.post("/api/queue/clear", async (_, res) => {
     });
   }
 });
+
+app.get("/api/health", async (_, res) => {
+  const startTime = process.uptime();
+  let status: HealthStatus = {
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    services: {
+      api: {
+        status: "healthy",
+        uptime: startTime,
+      },
+      redis: {
+        status: "healthy",
+      },
+      supabase: {
+        status: "healthy",
+      },
+      queue: await checkQueueHealth(crawlQueue),
+    },
+  };
+
+  // Check Redis connection through BullMQ
+  try {
+    await (await crawlQueue.client).ping();
+  } catch (error) {
+    status.services.redis = {
+      status: "unhealthy",
+      message: error instanceof Error ? error.message : "Redis connection failed",
+    };
+    status.status = "unhealthy";
+  }
+
+  // Check Supabase connection
+  try {
+    const { error } = await supabase.from("web_crawl_jobs").select("id").limit(1);
+    if (error) throw error;
+  } catch (error) {
+    status.services.supabase = {
+      status: "unhealthy",
+      message: error instanceof Error ? error.message : "Supabase connection failed",
+    };
+    status.status = "unhealthy";
+  }
+
+  // If queue is degraded but everything else is healthy, mark overall as degraded
+  if (status.status === "healthy" && status.services.queue.status === "degraded") {
+    status.status = "degraded";
+  }
+
+  const statusCode = status.status === "unhealthy" ? 503 : 200;
+  res.status(statusCode).json(status);
+});
+
+// Add this endpoint to your Express app routes in index.ts
+
+app.post("/api/queue/reset", async (_, res) => {
+  try {
+    // Get all jobs in all possible states
+    const jobStates = [
+      "waiting",
+      "active",
+      "delayed",
+      "paused",
+      "failed",
+      "completed",
+    ] as JobType[];
+    const jobs = await crawlQueue.getJobs(jobStates);
+
+    // Group jobs by crawl ID for organized cleanup
+    const jobsByCrawlId = new Map<string, string[]>();
+
+    jobs.forEach((job) => {
+      const crawlId = job.data.id;
+      if (!jobsByCrawlId.has(crawlId)) {
+        jobsByCrawlId.set(crawlId, []);
+      }
+      jobsByCrawlId.get(crawlId)?.push(job.id!);
+    });
+
+    // Process each crawl's jobs
+    const results = {
+      crawlsAffected: 0,
+      totalJobsRemoved: 0,
+      jobsByState: {} as Record<string, number>,
+      errors: [] as string[],
+    };
+
+    for (const [crawlId, jobIds] of jobsByCrawlId) {
+      try {
+        // Remove jobs from queue
+        await Promise.all(
+          jobIds.map(async (id) => {
+            const job = await crawlQueue.getJob(id);
+            if (job) {
+              const state = await job.getState();
+              results.jobsByState[state] = (results.jobsByState[state] || 0) + 1;
+              await job.remove();
+            }
+            return id;
+          })
+        );
+
+        // Update crawl job status in database
+        const { error: updateError } = await supabase
+          .from("web_crawl_jobs")
+          .update({
+            status: "stopped",
+            stop_requested_at: new Date().toISOString(),
+            processing_stats: {
+              reset_at: new Date().toISOString(),
+              cleared_job_count: jobIds.length,
+            },
+          })
+          .eq("id", crawlId);
+
+        if (updateError) throw updateError;
+
+        // Log the reset operation
+        await supabase.from("crawler_logs").insert({
+          crawl_job_id: crawlId,
+          level: "info",
+          message: `Queue reset - cleared ${jobIds.length} jobs`,
+          metadata: {
+            cleared_job_ids: jobIds,
+            operation: "queue_reset",
+          },
+        });
+
+        results.crawlsAffected++;
+        results.totalJobsRemoved += jobIds.length;
+
+        // Clean up any tracking data
+        cleanupCrawlJob(crawlId);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        results.errors.push(`Failed to process crawl ${crawlId}: ${errorMessage}`);
+      }
+    }
+
+    // Obliterate any remaining jobs (safety net)
+    await crawlQueue.obliterate({ force: true });
+
+    // Return summary of the operation
+    res.json({
+      success: true,
+      summary: {
+        crawls_affected: results.crawlsAffected,
+        total_jobs_removed: results.totalJobsRemoved,
+        jobs_by_state: results.jobsByState,
+        errors: results.errors,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to reset queue:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to reset queue",
+      details: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
 // Start the server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
