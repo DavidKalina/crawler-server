@@ -24,7 +24,7 @@ const worker = new Worker(
         activeJobsTracker.set(crawlId, new Set([jobId]));
         await supabase
           .from("web_crawl_jobs")
-          .update({ status: "active", last_processed_url: job.data.url })
+          .update({ status: "running", last_processed_url: job.data.url })
           .eq("id", crawlId);
       } else {
         activeJobsTracker.get(crawlId)?.add(jobId);
@@ -149,7 +149,7 @@ worker.on("completed", async (job) => {
       await supabase
         .from("web_crawl_jobs")
         .update({
-          status: "completed",
+          status: "crawled",
           completed_at: new Date().toISOString(),
         })
         .eq("id", crawlId);
