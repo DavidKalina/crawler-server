@@ -562,30 +562,8 @@ app.post("/api/queue/reset", async (_, res) => {
   }
 });
 
-// Add this to your index.ts
 app.get("/api/queue/status", async (req, res) => {
-  const { cursor = null, pageSize = 10 } = req.query;
-
   try {
-    // Get jobs with pagination
-    const jobs = await crawlQueue.getJobs(
-      ["waiting", "active", "completed", "failed"],
-      cursor ? Number(cursor) : 0,
-      Number(pageSize)
-    );
-
-    // Get job states and convert to your component's format
-    const formattedJobs = await Promise.all(
-      jobs.map(async (job) => {
-        const state = await job.getState();
-        return {
-          id: job.id,
-          state: state,
-          data: job.data,
-        };
-      })
-    );
-
     // Get queue stats
     const queueStats = {
       waitingCount: await crawlQueue.getWaitingCount(),
@@ -594,21 +572,28 @@ app.get("/api/queue/status", async (req, res) => {
       failedCount: await crawlQueue.getFailedCount(),
     };
 
-    // Calculate pagination info
-    const totalJobs = await crawlQueue.count();
-    const currentCursor = Number(cursor) || 0;
+    const totalJobs =
+      queueStats.waitingCount +
+      queueStats.activeCount +
+      queueStats.completedCount +
+      queueStats.failedCount;
 
-    const pagination = {
-      hasNextPage: currentCursor + Number(pageSize) < totalJobs,
-      hasPreviousPage: currentCursor > 0,
-      startCursor: currentCursor.toString(),
-      endCursor: (currentCursor + jobs.length).toString(),
-    };
+    // Get all jobs
+    const jobs = await crawlQueue.getJobs(["waiting", "active", "completed", "failed"]);
+
+    // Format jobs
+    const formattedJobs = await Promise.all(
+      jobs.map(async (job) => ({
+        id: job.id,
+        state: await job.getState(),
+        data: job.data,
+      }))
+    );
 
     res.json({
       jobs: formattedJobs,
       queueStats,
-      pagination,
+      totalJobs,
     });
   } catch (error) {
     console.error("Failed to fetch queue status:", error);
@@ -619,7 +604,6 @@ app.get("/api/queue/status", async (req, res) => {
   }
 });
 
-// Start the server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

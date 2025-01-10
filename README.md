@@ -56,7 +56,7 @@ curl -X POST http://localhost:3000/api/crawl \
   -H "Content-Type: application/json" \
   -d '{
     "startUrl": "https://www.oeockent.org",
-    "maxDepth": 3,
+    "maxDepth": 1,
     "allowedDomains": ["www.oeockent.org"]
   }'
 ```
