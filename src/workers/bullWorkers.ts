@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabaseClient";
 import { crawlQueue } from "../queues/crawlQueue";
 import { crawlPage, cleanupCrawlJob } from "../utils/crawlPage";
 import { UrlValidator } from "../utils/UrlValidator";
+import { broadcastQueueUpdate } from "..";
 
 // Keep track of active jobs and processed URLs per crawl
 const activeJobsTracker = new Map<string, Set<string>>();
@@ -104,7 +105,7 @@ const worker = new Worker(
                   parentUrl: result.url,
                 },
                 {
-                  removeOnComplete: true,
+                  removeOnComplete: false,
                   removeOnFail: false,
                 }
               );
@@ -182,6 +183,7 @@ worker.on("completed", async (job) => {
       console.log(`Crawl ${crawlId} completed and cleaned up`);
     }
   }
+  await broadcastQueueUpdate();
 });
 
 worker.on("failed", async (job, error) => {
@@ -216,6 +218,7 @@ worker.on("failed", async (job, error) => {
       }
     }
   }
+  await broadcastQueueUpdate();
 });
 
 worker.on("error", (error) => {

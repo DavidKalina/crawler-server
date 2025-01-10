@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { JobType } from "bullmq";
 import dotenv from "dotenv";
 import express from "express";
+import cors from "cors"; // Add this import
 import { v4 as uuidv4 } from "uuid";
 import { crawlQueue } from "./queues/crawlQueue";
 import { ExtractedContent } from "./types/contentTypes";
@@ -10,6 +11,10 @@ import { UrlValidator } from "./utils/UrlValidator";
 import "./workers/bullWorkers";
 import { cleanupCrawlJob } from "./utils/crawlPage";
 import { checkQueueHealth, HealthStatus } from "./utils/checkHealth";
+import { createServer, Server } from "http";
+import { WebSocketServer } from "ws";
+import type { WebSocket as WSClient } from "ws";
+
 console.log("Worker started and listening for jobs...");
 
 dotenv.config();
@@ -70,6 +75,78 @@ export interface CrawlResult {
 
 // Initialize Express app
 export const app = express();
+const server = createServer(app);
+const wss = new WebSocketServer({ noServer: true });
+const clients = new Set<WSClient>();
+
+export const broadcastQueueUpdate = async () => {
+  if (clients.size === 0) return;
+
+  try {
+    const jobs = await crawlQueue.getJobs(["waiting", "active", "completed", "failed"], 0, 10);
+    const formattedJobs = await Promise.all(
+      jobs.map(async (job) => {
+        const state = await job.getState();
+        return {
+          id: job.id,
+          state: state,
+          data: job.data,
+        };
+      })
+    );
+
+    const queueStats = {
+      waitingCount: await crawlQueue.getWaitingCount(),
+      activeCount: await crawlQueue.getActiveCount(),
+      completedCount: await crawlQueue.getCompletedCount(),
+      failedCount: await crawlQueue.getFailedCount(),
+    };
+
+    const update = JSON.stringify({
+      jobs: formattedJobs,
+      queueStats,
+    });
+
+    clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(update);
+      }
+    });
+  } catch (error) {
+    console.error("Failed to broadcast queue update:", error);
+  }
+};
+
+const corsOptions = {
+  origin: ["http://localhost:5000"], // Allow localhost:5000
+  methods: ["GET", "POST"], // Allow specific HTTP methods
+  allowedHeaders: ["Content-Type", "Authorization"], // Allow specific headers
+  credentials: true, // Allow credentials (cookies, authorization headers)
+};
+
+// Apply CORS middleware
+app.use(cors(corsOptions));
+
+// Keep track of connected clients
+server.on("upgrade", (request, socket, head) => {
+  // Check origin for WebSocket connections
+  const origin = request.headers.origin;
+  if (origin === "http://localhost:5000") {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit("connection", ws, request);
+    });
+  } else {
+    socket.destroy();
+  }
+});
+
+wss.on("connection", (ws) => {
+  clients.add(ws);
+
+  ws.on("close", () => {
+    clients.delete(ws);
+  });
+});
 app.use(express.json());
 
 // Initialize Supabase client
@@ -119,6 +196,7 @@ app.post("/api/crawl", async (req, res) => {
       url: startUrl,
       maxDepth,
       currentDepth: 0,
+      clients,
     });
 
     res.json({
@@ -252,6 +330,72 @@ app.post("/api/queue/clear", async (_, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to clear queue",
+      details: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+app.post("/api/jobs/reset", async (_, res) => {
+  try {
+    // 1. Reset all jobs in the queue
+    await crawlQueue.obliterate({ force: true });
+
+    // 2. Reset all jobs in the database
+    const { error: updateError } = await supabase
+      .from("web_crawl_jobs")
+      .update({
+        status: "pending",
+        total_pages_crawled: 0,
+        stop_requested_at: null,
+        processing_stats: {
+          reset_at: new Date().toISOString(),
+          status: "reset",
+        },
+      })
+      .neq("status", "pending"); // Only update non-pending jobs
+
+    if (updateError) throw updateError;
+
+    // 3. Log the reset operation
+    await supabase.from("crawler_logs").insert({
+      crawl_job_id: null, // Global reset
+      level: "info",
+      message: "Global job reset performed",
+      metadata: {
+        operation: "global_reset",
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    // 4. Notify WebSocket clients of the reset
+    const queueStats = {
+      waitingCount: await crawlQueue.getWaitingCount(),
+      activeCount: await crawlQueue.getActiveCount(),
+      completedCount: await crawlQueue.getCompletedCount(),
+      failedCount: await crawlQueue.getFailedCount(),
+    };
+
+    const update = JSON.stringify({
+      type: "RESET",
+      queueStats,
+    });
+
+    clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(update);
+      }
+    });
+
+    res.json({
+      success: true,
+      message: "All jobs have been reset",
+      queueStats,
+    });
+  } catch (error) {
+    console.error("Failed to reset jobs:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to reset jobs",
       details: error instanceof Error ? error.message : "Unknown error",
     });
   }
@@ -413,6 +557,63 @@ app.post("/api/queue/reset", async (_, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to reset queue",
+      details: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+// Add this to your index.ts
+app.get("/api/queue/status", async (req, res) => {
+  const { cursor = null, pageSize = 10 } = req.query;
+
+  try {
+    // Get jobs with pagination
+    const jobs = await crawlQueue.getJobs(
+      ["waiting", "active", "completed", "failed"],
+      cursor ? Number(cursor) : 0,
+      Number(pageSize)
+    );
+
+    // Get job states and convert to your component's format
+    const formattedJobs = await Promise.all(
+      jobs.map(async (job) => {
+        const state = await job.getState();
+        return {
+          id: job.id,
+          state: state,
+          data: job.data,
+        };
+      })
+    );
+
+    // Get queue stats
+    const queueStats = {
+      waitingCount: await crawlQueue.getWaitingCount(),
+      activeCount: await crawlQueue.getActiveCount(),
+      completedCount: await crawlQueue.getCompletedCount(),
+      failedCount: await crawlQueue.getFailedCount(),
+    };
+
+    // Calculate pagination info
+    const totalJobs = await crawlQueue.count();
+    const currentCursor = Number(cursor) || 0;
+
+    const pagination = {
+      hasNextPage: currentCursor + Number(pageSize) < totalJobs,
+      hasPreviousPage: currentCursor > 0,
+      startCursor: currentCursor.toString(),
+      endCursor: (currentCursor + jobs.length).toString(),
+    };
+
+    res.json({
+      jobs: formattedJobs,
+      queueStats,
+      pagination,
+    });
+  } catch (error) {
+    console.error("Failed to fetch queue status:", error);
+    res.status(500).json({
+      error: "Failed to fetch queue status",
       details: error instanceof Error ? error.message : "Unknown error",
     });
   }

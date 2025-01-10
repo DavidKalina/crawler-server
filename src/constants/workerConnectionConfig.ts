@@ -1,4 +1,6 @@
-export const WORKER_CONNECTION_CONFIG = {
+import { WorkerOptions } from "bullmq";
+
+export const WORKER_CONNECTION_CONFIG: WorkerOptions = {
   connection: {
     host: process.env.REDIS_HOST || "localhost",
     port: parseInt(process.env.REDIS_PORT || "6379"),
@@ -10,4 +12,5 @@ export const WORKER_CONNECTION_CONFIG = {
   removeOnFail: {
     age: 7 * 24 * 3600,
   },
+  concurrency: 5,
 };
