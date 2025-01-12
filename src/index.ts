@@ -558,28 +558,29 @@ app.post("/api/queue/reset", async (_, res) => {
   }
 });
 
-app.get("/api/queue/status", async (req, res) => {
+app.get("/api/queue/status/:jobId", async (req, res) => {
   try {
-    // Get queue stats
-    const queueStats = {
-      waitingCount: await crawlQueue.getWaitingCount(),
-      activeCount: await crawlQueue.getActiveCount(),
-      completedCount: await crawlQueue.getCompletedCount(),
-      failedCount: await crawlQueue.getFailedCount(),
-    };
-
-    const totalJobs =
-      queueStats.waitingCount +
-      queueStats.activeCount +
-      queueStats.completedCount +
-      queueStats.failedCount;
+    const { jobId } = req.params;
 
     // Get all jobs
     const jobs = await crawlQueue.getJobs(["waiting", "active", "completed", "failed"]);
 
+    // Filter jobs by crawl job ID if provided
+    const filteredJobs = jobId ? jobs.filter((job) => job.data.id === jobId) : jobs;
+
+    // Calculate queue stats based on filtered jobs
+    const queueStats = {
+      waitingCount: filteredJobs.filter((job) => job.data.state === "waiting").length,
+      activeCount: filteredJobs.filter((job) => job.data.state === "active").length,
+      completedCount: filteredJobs.filter((job) => job.data.state === "completed").length,
+      failedCount: filteredJobs.filter((job) => job.data.state === "failed").length,
+    };
+
+    const totalJobs = Object.values(queueStats).reduce((sum, count) => sum + count, 0);
+
     // Format jobs
     const formattedJobs = await Promise.all(
-      jobs.map(async (job) => ({
+      filteredJobs.map(async (job) => ({
         id: job.id,
         state: await job.getState(),
         data: job.data,
@@ -590,6 +591,7 @@ app.get("/api/queue/status", async (req, res) => {
       jobs: formattedJobs,
       queueStats,
       totalJobs,
+      crawlJobId: jobId || null,
     });
   } catch (error) {
     console.error("Failed to fetch queue status:", error);
