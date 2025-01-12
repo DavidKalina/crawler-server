@@ -25,10 +25,7 @@ const worker = new Worker(
         console.log(`Initializing new crawl tracking for ${crawlId}`);
         activeJobsTracker.set(crawlId, new Set([jobId]));
         processedUrlsTracker.set(crawlId, new Set());
-        await supabase
-          .from("web_crawl_jobs")
-          .update({ status: "running", last_processed_url: url })
-          .eq("id", crawlId);
+        await supabase.from("web_crawl_jobs").update({ status: "running" }).eq("id", crawlId);
       } else {
         activeJobsTracker.get(crawlId)?.add(jobId);
       }
@@ -75,7 +72,8 @@ const worker = new Worker(
         console.log(`New page inserted: ${normalizedUrl}`);
 
         // Increment total pages crawled exactly once
-        await supabase.rpc("increment_total_pages_crawled", {
+        // Update this in your worker code
+        await supabase.rpc("increment_pages_crawled", {
           job_id: crawlId,
           increment_by: 1,
         });
@@ -168,13 +166,17 @@ worker.on("completed", async (job) => {
     if (activeJobs.size === 0) {
       console.log(`Completing crawl ${crawlId}`);
 
-      await supabase
+      const { error } = await supabase
         .from("web_crawl_jobs")
         .update({
           status: "crawled",
-          completed_at: new Date().toISOString(),
+          completed_at: new Date(),
         })
         .eq("id", crawlId);
+
+      if (error) {
+        console.error(`ERROR_UPDATING_CRAWL_JOB`, error);
+      }
 
       activeJobsTracker.delete(crawlId);
       processedUrlsTracker.delete(crawlId);
@@ -192,6 +194,13 @@ worker.on("failed", async (job, error) => {
     const jobId = job.id!;
     console.log(`Handling failure for job ${jobId}:`, error);
 
+    await supabase.rpc("update_job_metadata", {
+      job_id: crawlId,
+      updates: {
+        error_count: 1, // This will increment by 1 due to JSONB concatenation
+      },
+    });
+
     const activeJobs = activeJobsTracker.get(crawlId);
     if (activeJobs) {
       activeJobs.delete(jobId);
@@ -199,17 +208,15 @@ worker.on("failed", async (job, error) => {
       if (activeJobs.size === 0) {
         console.log(`Marking crawl ${crawlId} as failed`);
 
-        await supabase
-          .from("web_crawl_jobs")
-          .update({
-            status: "failed",
-            processing_stats: {
-              last_error: error.message,
-              failed_at: new Date().toISOString(),
-            },
-          })
-          .eq("id", crawlId);
+        await supabase.rpc("update_job_metadata", {
+          job_id: crawlId,
+          updates: {
+            last_error: error.message,
+            failed_at: new Date().toISOString(),
+          },
+        });
 
+        await supabase.from("web_crawl_jobs").update({ status: "failed" }).eq("id", crawlId);
         activeJobsTracker.delete(crawlId);
         processedUrlsTracker.delete(crawlId);
         cleanupCrawlJob(crawlId);

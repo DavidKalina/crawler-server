@@ -1,4 +1,5 @@
 import axios from "axios";
+import { encode } from "gpt-tokenizer";
 
 import { consultRobotsTxt } from "./consultRobotsTxt";
 import { domainGuard } from "./DomainGuard";
@@ -50,6 +51,7 @@ export async function crawlPage(job: CrawlJob): Promise<CrawlResult> {
     const $ = await loadContentIntoCheerio(jobId, response, debugInfo);
 
     let extractedContent;
+
     try {
       const contentExtractor = new ContentExtractor($, job.url);
       extractedContent = contentExtractor.extract();
@@ -80,6 +82,20 @@ export async function crawlPage(job: CrawlJob): Promise<CrawlResult> {
 
     // Verify content before returning
     verifyContentExtraction(extractedContent);
+
+    const responseSize = Buffer.byteLength(response.data, "utf8"); // Gets actual byte size of response
+
+    console.log({ responseSize });
+    await supabase.rpc("update_job_metadata", {
+      job_id: jobId,
+      updates: {
+        total_size_bytes: responseSize,
+        token_count: encode(extractedContent.rawText).reduce((acc, curr) => {
+          return curr + acc;
+        }, 0),
+      },
+    });
+
     // Process and filter links
     const links: string[] = [];
     if (job.currentDepth < job.maxDepth) {

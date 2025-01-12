@@ -182,10 +182,6 @@ app.post("/api/crawl", async (req, res) => {
       start_url: startUrl,
       max_depth: maxDepth,
       status: "pending",
-      total_pages_crawled: 0,
-      config: {
-        allowedDomains: allowedDomains || [new URL(startUrl).hostname],
-      },
     });
 
     if (jobError) throw jobError;
