@@ -1,19 +1,19 @@
 import { createClient } from "@supabase/supabase-js";
 import { JobType } from "bullmq";
+import cors from "cors"; // Add this import
 import dotenv from "dotenv";
 import express from "express";
-import cors from "cors"; // Add this import
+import { createServer } from "http";
 import { v4 as uuidv4 } from "uuid";
+import type { WebSocket as WSClient } from "ws";
+import { WebSocketServer, WebSocket } from "ws";
 import { crawlQueue } from "./queues/crawlQueue";
 import { ExtractedContent } from "./types/contentTypes";
+import { checkQueueHealth, HealthStatus } from "./utils/checkHealth";
+import { cleanupCrawlJob } from "./utils/crawlPage";
 import { domainGuard } from "./utils/DomainGuard";
 import { UrlValidator } from "./utils/UrlValidator";
 import "./workers/bullWorkers";
-import { cleanupCrawlJob } from "./utils/crawlPage";
-import { checkQueueHealth, HealthStatus } from "./utils/checkHealth";
-import { createServer, Server } from "http";
-import { WebSocketServer } from "ws";
-import type { WebSocket as WSClient } from "ws";
 
 console.log("Worker started and listening for jobs...");
 
@@ -83,28 +83,79 @@ export const broadcastQueueUpdate = async () => {
   if (clients.size === 0) return;
 
   try {
+    // Get all jobs from the queue
     const jobs = await crawlQueue.getJobs(["waiting", "active", "completed", "failed"], 0, 10);
-    const formattedJobs = await Promise.all(
-      jobs.map(async (job) => {
-        const state = await job.getState();
-        return {
-          id: job.id,
-          state: state,
-          data: job.data,
-        };
-      })
-    );
 
-    const queueStats = {
-      waitingCount: await crawlQueue.getWaitingCount(),
-      activeCount: await crawlQueue.getActiveCount(),
-      completedCount: await crawlQueue.getCompletedCount(),
-      failedCount: await crawlQueue.getFailedCount(),
-    };
+    // Get all recent jobs from the database including pending ones
+    const { data: dbJobs, error } = await supabase
+      .from("web_crawl_jobs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    if (error) throw error;
+
+    // Group queue jobs by crawl ID
+    const jobsByCrawlId = new Map<string, Array<any>>();
+
+    for (const job of jobs) {
+      const crawlId = job.data.id;
+      if (!jobsByCrawlId.has(crawlId)) {
+        jobsByCrawlId.set(crawlId, []);
+      }
+      const state = await job.getState();
+      jobsByCrawlId.get(crawlId)?.push({
+        id: job.id,
+        state,
+        data: job.data,
+      });
+    }
+
+    // Create crawl stats including pending jobs
+    const crawlStats = dbJobs.map((dbJob) => {
+      const queueJobs = jobsByCrawlId.get(dbJob.id) || [];
+
+      // If there are no queue jobs yet, treat it as pending
+      if (queueJobs.length === 0) {
+        return {
+          crawlId: dbJob.id,
+          stats: {
+            total: 1,
+            waiting: 0,
+            active: 0,
+            completed: 0,
+            failed: 0,
+            pending: 1,
+          },
+          isComplete: false,
+          status: "pending",
+        };
+      }
+
+      // Otherwise calculate stats from queue jobs
+      return {
+        crawlId: dbJob.id,
+        stats: {
+          total: queueJobs.length,
+          waiting: queueJobs.filter((j) => j.state === "waiting").length,
+          active: queueJobs.filter((j) => j.state === "active").length,
+          completed: queueJobs.filter((j) => j.state === "completed").length,
+          failed: queueJobs.filter((j) => j.state === "failed").length,
+          pending: 0,
+        },
+        isComplete: queueJobs.every((j) => ["completed", "failed"].includes(j.state)),
+        status: dbJob.status,
+      };
+    });
 
     const update = JSON.stringify({
-      jobs: formattedJobs,
-      queueStats,
+      crawls: crawlStats,
+      queueStats: {
+        waitingCount: await crawlQueue.getWaitingCount(),
+        activeCount: await crawlQueue.getActiveCount(),
+        completedCount: await crawlQueue.getCompletedCount(),
+        failedCount: await crawlQueue.getFailedCount(),
+      },
     });
 
     clients.forEach((client) => {
@@ -603,8 +654,8 @@ app.get("/api/queue/status/:jobId", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-export default app;
+export default server;
