@@ -5,7 +5,7 @@ import {
   InvalidUrlFormatError,
   DomainNotAllowedError,
 } from "../errors/crawler/CrawlerErrorTypes";
-import { CrawlJob } from "..";
+import { CrawlJob } from "../types/crawlTypes";
 
 export function validateCrawlRequest(job: CrawlJob, crawledUrls: Map<string, Set<string>>) {
   if (crawledUrls.get(job.id)?.has(job.url)) {

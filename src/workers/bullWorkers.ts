@@ -2,9 +2,9 @@ import { Worker } from "bullmq";
 import { WORKER_CONNECTION_CONFIG } from "../constants/workerConnectionConfig";
 import { supabase } from "../lib/supabaseClient";
 import { crawlQueue } from "../queues/crawlQueue";
-import { crawlPage, cleanupCrawlJob } from "../utils/crawlPage";
+import { ServiceFactory } from "../services/serviceFactory";
+import { cleanupCrawlJob, crawlPage } from "../utils/crawlPage";
 import { UrlValidator } from "../utils/UrlValidator";
-import { broadcastQueueUpdate } from "..";
 
 // Keep track of active jobs and processed URLs per crawl
 const activeJobsTracker = new Map<string, Set<string>>();
@@ -185,7 +185,7 @@ worker.on("completed", async (job) => {
       console.log(`Crawl ${crawlId} completed and cleaned up`);
     }
   }
-  await broadcastQueueUpdate();
+  await ServiceFactory.getServices().queueUpdateService.broadcastQueueUpdate();
 });
 
 worker.on("failed", async (job, error) => {
@@ -225,7 +225,7 @@ worker.on("failed", async (job, error) => {
       }
     }
   }
-  await broadcastQueueUpdate();
+  await ServiceFactory.getServices().queueUpdateService.broadcastQueueUpdate();
 });
 
 worker.on("error", (error) => {

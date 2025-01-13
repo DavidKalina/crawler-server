@@ -1,0 +1,66 @@
+// services/factory.ts
+import { supabase } from "../lib/supabaseClient";
+import { crawlQueue } from "../queues/crawlQueue";
+import { DatabaseService } from "./databaseService";
+import { QueueService } from "./queueService";
+import { QueueUpdateService } from "./queueUpdateService";
+import { WebSocketService } from "./wsService";
+import { HealthService } from "./healthService";
+
+export interface Services {
+  wsService: WebSocketService;
+  queueService: QueueService;
+  dbService: DatabaseService;
+  queueUpdateService: QueueUpdateService;
+  healthService: HealthService;
+}
+
+export class ServiceFactory {
+  private static instance: Services | null = null;
+
+  static createServices(): Services {
+    if (this.instance) {
+      return this.instance;
+    }
+
+    const wsService = new WebSocketService();
+    const queueService = new QueueService(crawlQueue);
+    const dbService = new DatabaseService(supabase);
+    const queueUpdateService = new QueueUpdateService(wsService, queueService, dbService);
+    const healthService = new HealthService(crawlQueue, supabase);
+
+    this.instance = {
+      wsService,
+      queueService,
+      dbService,
+      queueUpdateService,
+      healthService,
+    };
+
+    return this.instance;
+  }
+
+  static getServices(): Services {
+    if (!this.instance) {
+      return this.createServices();
+    }
+    return this.instance;
+  }
+
+  static resetServices(): void {
+    this.instance = null;
+  }
+
+  static async cleanup(): Promise<void> {
+    if (this.instance) {
+      // Cleanup WebSocket connections
+      this.instance.wsService.wsClients.forEach((client) => {
+        client.close();
+      });
+
+      // Any other service-specific cleanup needed
+
+      this.instance = null;
+    }
+  }
+}

@@ -8,12 +8,12 @@ import { UrlValidator } from "./UrlValidator";
 import { validateCrawlRequest } from "./validateCrawlRequest";
 import { verifyContentExtraction } from "./verifyContentExtraction";
 
-import { CrawlJob, CrawlResult, CrawlDebugInfo } from "..";
 import { ContentExtractor } from "../classes/ContentExtractor";
 import { DuplicateUrlError, RobotsNotAllowedError } from "../errors/crawler/CrawlerErrorTypes";
 import { CRAWL_REQUEST_CONFIG } from "../constants/crawlRequestConfig";
 import { supabase } from "../lib/supabaseClient";
 import { EMPTY_CRAWL_RESULT } from "../constants/emptyCrawlResults";
+import { CrawlDebugInfo, CrawlJob, CrawlResult } from "../types/crawlTypes";
 
 const crawledUrls = new Map<string, Set<string>>();
 

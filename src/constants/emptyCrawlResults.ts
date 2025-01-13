@@ -1,4 +1,4 @@
-import { CrawlResult } from "..";
+import { CrawlResult } from "../types/crawlTypes";
 
 export const EMPTY_CRAWL_RESULT: CrawlResult = {
   url: "",
