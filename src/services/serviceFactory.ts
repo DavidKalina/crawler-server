@@ -4,12 +4,12 @@ import { crawlQueue } from "../queues/crawlQueue";
 import { DatabaseService } from "./databaseService";
 import { QueueService } from "./queueService";
 import { QueueUpdateService } from "./queueUpdateService";
-import { WebSocketService } from "./wsService";
+import { wsService } from "./wsService"; // Import the singleton instance
 import { HealthService } from "./healthService";
 import { RedisService } from "./redisService";
 
 export interface Services {
-  wsService: WebSocketService;
+  wsService: typeof wsService;
   queueService: QueueService;
   dbService: DatabaseService;
   queueUpdateService: QueueUpdateService;
@@ -25,7 +25,6 @@ export class ServiceFactory {
       return this.instance;
     }
 
-    const wsService = new WebSocketService();
     const queueService = new QueueService(crawlQueue);
     const dbService = new DatabaseService(supabase);
     const redisService = new RedisService();
@@ -33,7 +32,7 @@ export class ServiceFactory {
     const healthService = new HealthService(crawlQueue, supabase);
 
     this.instance = {
-      wsService,
+      wsService, // Use the singleton instance
       queueService,
       dbService,
       queueUpdateService,
@@ -57,13 +56,9 @@ export class ServiceFactory {
 
   static async cleanup(): Promise<void> {
     if (this.instance) {
-      // Cleanup WebSocket connections
       this.instance.wsService.wsClients.forEach((client) => {
         client.close();
-      });
-
-      // Any other service-specific cleanup needed
-
+      }); // Any other cleanup needed
       this.instance = null;
     }
   }

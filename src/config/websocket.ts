@@ -17,15 +17,11 @@ export const setupWebSocket = (server: Server, wsService: WebSocketService) => {
   // Handle upgrade requests
   server.on("upgrade", (request: WebSocketAuthRequest, socket, head) => {
     try {
+      console.log("Received WebSocket upgrade request from:", request.headers.origin);
+
       // Validate origin
       if (!isValidOrigin(request.headers.origin)) {
-        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-        socket.destroy();
-        return;
-      }
-
-      // Optional: Check authorization header if needed
-      if (!isValidAuth(request.headers.authorization)) {
+        console.log("Invalid origin:", request.headers.origin);
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();
         return;
@@ -44,6 +40,14 @@ export const setupWebSocket = (server: Server, wsService: WebSocketService) => {
   wss.on("connection", (ws: WSClient, request: WebSocketAuthRequest) => {
     console.log(`New WebSocket connection from ${request.headers.origin}`);
 
+    // Send an initial test message
+    try {
+      ws.send(JSON.stringify({ type: "connection_test", message: "Connected successfully" }));
+      console.log("Sent test message to new client");
+    } catch (error) {
+      console.error("Error sending test message:", error);
+    }
+
     setupWebSocketClient(ws, wsService);
     setupWebSocketHeartbeat(ws);
   });
@@ -56,6 +60,46 @@ export const setupWebSocket = (server: Server, wsService: WebSocketService) => {
   return wss;
 };
 
+// Message handler function
+const handleWebSocketMessage = (ws: WSClient, data: any) => {
+  console.log("Handling WebSocket message:", data);
+
+  switch (data.type) {
+    case "client_test":
+      console.log("Received test message from client:", data.message);
+      ws.send(
+        JSON.stringify({
+          type: "server_response",
+          message: "Server received your test message",
+        })
+      );
+      break;
+
+    case "ping":
+      ws.send(
+        JSON.stringify({
+          type: "pong",
+          timestamp: Date.now(),
+        })
+      );
+      break;
+
+    case "subscribe":
+      // Handle subscription requests if needed
+      console.log("Client requested subscription");
+      break;
+
+    case "unsubscribe":
+      // Handle unsubscription requests if needed
+      console.log("Client requested unsubscription");
+      break;
+
+    default:
+      console.log("Unknown message type:", data.type);
+      sendError(ws, "Unknown message type");
+  }
+};
+
 // Setup individual client
 const setupWebSocketClient = (ws: WSClient, wsService: WebSocketService) => {
   // Add client to service
@@ -64,6 +108,7 @@ const setupWebSocketClient = (ws: WSClient, wsService: WebSocketService) => {
   // Handle incoming messages
   ws.on("message", (message: Buffer) => {
     try {
+      console.log("Received message from client:", message.toString());
       const data = JSON.parse(message.toString());
       handleWebSocketMessage(ws, data);
     } catch (error) {
@@ -91,10 +136,10 @@ const setupWebSocketHeartbeat = (ws: WSClient) => {
     if (ws.readyState === ws.OPEN) {
       ws.ping();
     }
-  }, 30000); // Send ping every 30 seconds
+  }, 30000);
 
   ws.on("pong", () => {
-    // Optional: Log or monitor latency
+    console.log("Received pong from client");
   });
 
   ws.on("close", () => {
@@ -102,36 +147,13 @@ const setupWebSocketHeartbeat = (ws: WSClient) => {
   });
 };
 
-// Message handler
-const handleWebSocketMessage = (ws: WSClient, data: any) => {
-  switch (data.type) {
-    case "ping":
-      ws.send(JSON.stringify({ type: "pong", timestamp: Date.now() }));
-      break;
-    case "subscribe":
-      // Handle subscription requests
-      break;
-    case "unsubscribe":
-      // Handle unsubscription requests
-      break;
-    default:
-      sendError(ws, "Unknown message type");
-  }
-};
-
-// Utility functions
 const isValidOrigin = (origin: string): boolean => {
   const allowedOrigins = [
     "http://localhost:5000",
+    "http://localhost:3000",
     // Add other allowed origins
   ];
   return allowedOrigins.includes(origin);
-};
-
-const isValidAuth = (auth?: string): boolean => {
-  // Implement your authentication logic here
-  // For now, return true if no auth is required
-  return true;
 };
 
 const sendError = (ws: WSClient, message: string) => {
