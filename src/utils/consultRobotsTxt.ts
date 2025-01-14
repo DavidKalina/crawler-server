@@ -8,7 +8,7 @@ export async function consultRobotsTxt(normalizedUrl: string) {
     const robots = robotsParser(robotsUrl, robotsResponse.data);
     return !!robots.isAllowed(normalizedUrl);
   } catch {
-    console.warn(`Could not fetch robots.txt for ${normalizedUrl}, proceeding with crawl`);
+    // console.warn(`Could not fetch robots.txt for ${normalizedUrl}, proceeding with crawl`);
     return true;
   }
 }
