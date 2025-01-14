@@ -50,18 +50,13 @@ router.post("/", async (req, res) => {
     await services.queueUpdateService.broadcastQueueUpdate();
 
     // Log operation
-    await services.dbService.logCrawlOperation({
-      crawl_job_id: jobId,
-      level: "info",
-      message: "Crawl job started",
-      metadata: { startUrl, maxDepth, allowedDomains },
-    });
 
     res.json({
       message: "Crawl job started",
       jobId,
     });
   } catch (error) {
+    console.log("ERROR", error);
     console.error("Failed to start crawl job:", error);
     res.status(500).json({ error: "Failed to start crawl job" });
   }

@@ -3,7 +3,7 @@ export interface CrawlJobRecord {
   id: string;
   start_url: string;
   max_depth: number;
-  status: "pending" | "active" | "completed" | "failed" | "stopped";
+  status: "pending" | "active" | "completed" | "failed" | "stopped" | "crawled";
   total_pages_crawled?: number;
   stop_requested_at?: string;
   created_at?: string;
@@ -71,6 +71,7 @@ export class DatabaseService {
   async incrementPagesCount(id: string) {
     const { data, error } = await this.supabase.rpc("increment_pages_crawled", {
       job_id: id,
+      increment_by: 1,
     });
 
     if (error) throw error;
@@ -141,24 +142,5 @@ export class DatabaseService {
 
     if (error) throw error;
     return data;
-  }
-
-  async logQueueOperation(data: {
-    crawl_job_id: string;
-    operation: "queue_clear" | "queue_reset";
-    jobIds: string[];
-    jobCount: number;
-  }) {
-    await this.logCrawlOperation({
-      crawl_job_id: data.crawl_job_id,
-      level: "info",
-      message: `${data.operation === "queue_clear" ? "Cleared" : "Queue reset - cleared"} ${
-        data.jobCount
-      } jobs`,
-      metadata: {
-        cleared_job_ids: data.jobIds,
-        operation: data.operation,
-      },
-    });
   }
 }

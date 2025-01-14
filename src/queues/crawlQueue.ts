@@ -1,17 +1,11 @@
 // src/queues/crawlQueue.ts
 import { Queue } from "bullmq";
 import dotenv from "dotenv";
+import { BULL_REDIS_CONFIG } from "../config/redis";
 
 dotenv.config();
 
-export const crawlQueue = new Queue("crawl-jobs", {
-  connection: {
-    host: process.env.REDIS_HOST || "localhost",
-    port: parseInt(process.env.REDIS_PORT || "6379"),
-    maxRetriesPerRequest: 3,
-    enableReadyCheck: true,
-  },
-});
+export const crawlQueue = new Queue("crawl-jobs", BULL_REDIS_CONFIG);
 
 // Add error handling
 crawlQueue.on("error", (error) => {

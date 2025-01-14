@@ -6,6 +6,7 @@ import { QueueService } from "./queueService";
 import { QueueUpdateService } from "./queueUpdateService";
 import { WebSocketService } from "./wsService";
 import { HealthService } from "./healthService";
+import { RedisService } from "./redisService";
 
 export interface Services {
   wsService: WebSocketService;
@@ -13,6 +14,7 @@ export interface Services {
   dbService: DatabaseService;
   queueUpdateService: QueueUpdateService;
   healthService: HealthService;
+  redisService: RedisService;
 }
 
 export class ServiceFactory {
@@ -26,6 +28,7 @@ export class ServiceFactory {
     const wsService = new WebSocketService();
     const queueService = new QueueService(crawlQueue);
     const dbService = new DatabaseService(supabase);
+    const redisService = new RedisService();
     const queueUpdateService = new QueueUpdateService(wsService, queueService, dbService);
     const healthService = new HealthService(crawlQueue, supabase);
 
@@ -35,6 +38,7 @@ export class ServiceFactory {
       dbService,
       queueUpdateService,
       healthService,
+      redisService,
     };
 
     return this.instance;

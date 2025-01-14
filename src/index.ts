@@ -6,6 +6,8 @@ import { setupMiddleware } from "./middleware";
 import { setupRoutes } from "./routes";
 import "./workers/bullWorkers";
 import { ServiceFactory } from "./services/serviceFactory";
+import setupWebSocket from "./config/websocket";
+import { WebSocketService } from "./services/wsService";
 console.log("Worker started and listening for jobs...");
 dotenv.config();
 
@@ -23,7 +25,7 @@ const cleanup = async () => {
 };
 
 setupMiddleware(app);
-setupMiddleware(app);
+setupWebSocket(server, new WebSocketService());
 setupRoutes(app);
 
 process.on("SIGTERM", cleanup);

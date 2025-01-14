@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { cleanupCrawlJob } from "../utils/crawlPage";
 import { ServiceFactory } from "../services/serviceFactory";
 import { QueueJobInfo } from "../types/queueTypes";
 
@@ -7,7 +6,7 @@ const router = Router();
 
 // POST /api/queue/clear - Clear all jobs from the queue
 router.post("/clear", async (_, res) => {
-  const { queueService, dbService } = ServiceFactory.getServices();
+  const { queueService, dbService, redisService } = ServiceFactory.getServices();
 
   try {
     // Get jobs before clearing them
@@ -30,15 +29,9 @@ router.post("/clear", async (_, res) => {
     for (const [crawlId, jobIds] of jobsByCrawlId) {
       // Update database and log the operation
       await dbService.updateJobAfterQueueClear(crawlId, jobIds.length);
-      await dbService.logQueueOperation({
-        crawl_job_id: crawlId,
-        operation: "queue_clear",
-        jobIds,
-        jobCount: jobIds.length,
-      });
 
       // Clean up any tracking data
-      cleanupCrawlJob(crawlId);
+      redisService.cleanup(crawlId);
     }
 
     res.json({
@@ -61,7 +54,7 @@ router.post("/clear", async (_, res) => {
 
 // POST /api/queue/reset - Reset the queue
 router.post("/reset", async (_, res) => {
-  const { queueService, dbService } = ServiceFactory.getServices();
+  const { queueService, dbService, redisService } = ServiceFactory.getServices();
 
   try {
     const jobs = await queueService.getRecentJobs(Infinity);
@@ -95,17 +88,11 @@ router.post("/reset", async (_, res) => {
 
         // Update database and log the operation
         await dbService.updateJobAfterQueueReset(crawlId, jobs.length);
-        await dbService.logQueueOperation({
-          crawl_job_id: crawlId,
-          operation: "queue_reset",
-          jobIds: jobs.map((j) => j.id),
-          jobCount: jobs.length,
-        });
 
         results.crawlsAffected++;
         results.totalJobsRemoved += jobs.length;
 
-        cleanupCrawlJob(crawlId);
+        redisService.cleanup(crawlId);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
         results.errors.push(`Failed to process crawl ${crawlId}: ${errorMessage}`);

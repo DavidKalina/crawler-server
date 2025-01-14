@@ -7,11 +7,7 @@ import {
 } from "../errors/crawler/CrawlerErrorTypes";
 import { CrawlJob } from "../types/crawlTypes";
 
-export function validateCrawlRequest(job: CrawlJob, crawledUrls: Map<string, Set<string>>) {
-  if (crawledUrls.get(job.id)?.has(job.url)) {
-    throw new DuplicateUrlError(job.url);
-  }
-
+export function validateCrawlRequest(job: CrawlJob) {
   const normalizedUrl = UrlValidator.normalizeUrl(job.url);
   if (!normalizedUrl) {
     throw new InvalidUrlFormatError(job.url);
