@@ -17,6 +17,12 @@ const worker = new Worker(
     console.log(`Starting job ${jobId} for URL: ${url}`);
 
     try {
+      const activeJobCount = await services.redisService.getActiveJobCount(crawlId);
+      if (activeJobCount === 0) {
+        // This is the first job, update status to running
+        await services.dbService.updateJobStatus(crawlId, "running");
+        console.log(`Updated crawl ${crawlId} status to running`);
+      }
       // Normalize URL
       const normalizedUrl = UrlValidator.normalizeUrl(url);
 

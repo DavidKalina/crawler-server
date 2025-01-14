@@ -120,19 +120,18 @@ router.post("/reset", async (_, res) => {
 });
 
 // GET /api/queue/status/:jobId - Get queue status for a specific job
+// routes/queueRoutes.ts
+
 router.get("/status/:jobId", async (req, res) => {
   const { queueService } = ServiceFactory.getServices();
 
   try {
     const { jobId } = req.params;
 
-    let jobs;
-    if (jobId) {
-      jobs = await queueService.getJobsByCrawlId(jobId);
-    } else {
-      jobs = await queueService.getRecentJobs(Infinity);
-    }
+    // Get jobs and queue stats for this crawl job
+    const jobs = await queueService.getJobsByCrawlId(jobId);
 
+    // Calculate queue stats from the jobs
     const queueStats = {
       waitingCount: jobs.filter((job) => job.state === "waiting").length,
       activeCount: jobs.filter((job) => job.state === "active").length,
@@ -140,13 +139,19 @@ router.get("/status/:jobId", async (req, res) => {
       failedCount: jobs.filter((job) => job.state === "failed").length,
     };
 
-    const totalJobs = Object.values(queueStats).reduce((sum, count) => sum + count, 0);
-
     res.json({
-      jobs,
+      jobs: jobs.map((job) => ({
+        id: job.id,
+        state: job.state,
+        data: {
+          url: job.data.url,
+          currentDepth: job.data.currentDepth,
+          maxDepth: job.data.maxDepth,
+        },
+      })),
       queueStats,
-      totalJobs,
-      crawlJobId: jobId || null,
+      totalJobs: jobs.length,
+      crawlJobId: jobId,
     });
   } catch (error) {
     console.error("Failed to fetch queue status:", error);

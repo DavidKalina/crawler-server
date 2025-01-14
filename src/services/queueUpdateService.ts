@@ -150,17 +150,3 @@ export class QueueUpdateService {
     }, intervalMs);
   }
 }
-
-// Types file (types/queueTypes.ts) for reference:
-/*
-export interface QueueJobInfo {
-  id: string;
-  state: string;
-  data: any;
-  progress: number | object;
-}
-
-
-
-
-*/

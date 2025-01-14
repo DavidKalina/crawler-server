@@ -3,7 +3,7 @@ export interface CrawlJobRecord {
   id: string;
   start_url: string;
   max_depth: number;
-  status: "pending" | "active" | "completed" | "failed" | "stopped" | "crawled";
+  status: "pending" | "active" | "completed" | "failed" | "stopped" | "crawled" | "running";
   total_pages_crawled?: number;
   stop_requested_at?: string;
   created_at?: string;
