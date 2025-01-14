@@ -112,7 +112,7 @@ const worker = new Worker(
                 },
                 {
                   removeOnComplete: false,
-                  removeOnFail: false,
+                  removeOnFail: true,
                 }
               );
               await services.redisService.addActiveJob(crawlId, newJob.id!);
@@ -170,6 +170,8 @@ worker.on("failed", async (job, error) => {
     const crawlId = job.data.id;
     const jobId = job.id!;
     console.log(`Handling failure for job ${jobId}:`, error);
+
+    await services.dbService.incrementErrorsCount(crawlId);
 
     await services.redisService.removeActiveJob(crawlId, jobId);
     const activeJobCount = await services.redisService.getActiveJobCount(crawlId);

@@ -79,6 +79,15 @@ export class DatabaseService {
     return data;
   }
 
+  async incrementErrorsCount(id: string) {
+    const { data, error } = await this.supabase.rpc(`increment_crawl_errors`, {
+      job_id: id,
+      increment_by: 1,
+    });
+    if (error) throw error;
+    return data;
+  }
+
   async logCrawlOperation(data: {
     crawl_job_id: string;
     level: "info" | "error" | "warning";

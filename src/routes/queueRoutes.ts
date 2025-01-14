@@ -10,7 +10,7 @@ router.post("/clear", async (_, res) => {
 
   try {
     // Get jobs before clearing them
-    const jobs = await queueService.getRecentJobs(Infinity);
+    const jobs = await queueService.getRecentJobs(999999999);
 
     // Group jobs by crawl ID
     const jobsByCrawlId = jobs.reduce((acc, job) => {
@@ -57,7 +57,7 @@ router.post("/reset", async (_, res) => {
   const { queueService, dbService, redisService } = ServiceFactory.getServices();
 
   try {
-    const jobs = await queueService.getRecentJobs(Infinity);
+    const jobs = await queueService.getRecentJobs(999999999);
 
     const jobsByCrawlId = jobs.reduce((acc, job) => {
       const crawlId = job.data.id;

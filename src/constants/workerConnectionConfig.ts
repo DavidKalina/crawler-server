@@ -10,7 +10,7 @@ export const WORKER_CONNECTION_CONFIG: WorkerOptions = {
     count: 1000,
   },
   removeOnFail: {
-    age: 7 * 24 * 3600,
+    count: 0,
   },
   concurrency: 5,
 };
