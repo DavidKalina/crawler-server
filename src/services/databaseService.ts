@@ -7,6 +7,7 @@ export interface CrawlJobRecord {
   total_pages_crawled?: number;
   stop_requested_at?: string;
   created_at?: string;
+  completed_at?: string;
   processing_stats?: Record<string, any>;
 }
 

@@ -148,7 +148,9 @@ worker.on("completed", async (job) => {
 
   if (activeJobCount === 0) {
     console.log(`Completing crawl ${crawlId}`);
-    await services.dbService.updateJobStatus(crawlId, "crawled");
+    await services.dbService.updateJobStatus(crawlId, "crawled", {
+      completed_at: new Date().toISOString(),
+    });
     await Promise.all([services.redisService.cleanup(crawlId)]);
     console.log(`Crawl ${crawlId} completed and cleaned up`);
   }
