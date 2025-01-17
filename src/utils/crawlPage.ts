@@ -8,14 +8,12 @@ import { UrlValidator } from "./UrlValidator";
 import { validateCrawlRequest } from "./validateCrawlRequest";
 import { verifyContentExtraction } from "./verifyContentExtraction";
 
-import { CrawlJob, CrawlResult, CrawlDebugInfo } from "..";
 import { ContentExtractor } from "../classes/ContentExtractor";
 import { DuplicateUrlError, RobotsNotAllowedError } from "../errors/crawler/CrawlerErrorTypes";
 import { CRAWL_REQUEST_CONFIG } from "../constants/crawlRequestConfig";
 import { supabase } from "../lib/supabaseClient";
 import { EMPTY_CRAWL_RESULT } from "../constants/emptyCrawlResults";
-
-const crawledUrls = new Map<string, Set<string>>();
+import { CrawlDebugInfo, CrawlJob, CrawlResult } from "../types/crawlTypes";
 
 export async function crawlPage(job: CrawlJob): Promise<CrawlResult> {
   const jobId = job.id;
@@ -25,13 +23,8 @@ export async function crawlPage(job: CrawlJob): Promise<CrawlResult> {
     timestamp: new Date().toISOString(),
   };
 
-  if (!crawledUrls.has(jobId)) {
-    crawledUrls.set(jobId, new Set());
-  }
-
   try {
-    const normalizedUrl = validateCrawlRequest(job, crawledUrls);
-    crawledUrls.get(jobId)?.add(normalizedUrl);
+    const normalizedUrl = validateCrawlRequest(job);
 
     const isRobotsAllowed = await consultRobotsTxt(normalizedUrl);
 
@@ -72,20 +65,11 @@ export async function crawlPage(job: CrawlJob): Promise<CrawlResult> {
       throw error;
     }
 
-    // Log debug info to database
-    await supabase.from("crawler_logs").insert({
-      crawl_job_id: jobId,
-      level: "debug",
-      message: "Content extraction debug info",
-      metadata: debugInfo,
-    });
-
     // Verify content before returning
     verifyContentExtraction(extractedContent);
 
     const responseSize = Buffer.byteLength(response.data, "utf8"); // Gets actual byte size of response
 
-    console.log({ responseSize });
     await supabase.rpc("update_job_metadata", {
       job_id: jobId,
       updates: {
@@ -108,8 +92,6 @@ export async function crawlPage(job: CrawlJob): Promise<CrawlResult> {
 
           if (seenUrls.has(normalizedLink)) continue;
           seenUrls.add(normalizedLink);
-
-          if (crawledUrls.get(jobId)?.has(normalizedLink)) continue;
 
           if (!domainGuard.isUrlAllowed(normalizedLink)) continue;
 
@@ -136,8 +118,4 @@ export async function crawlPage(job: CrawlJob): Promise<CrawlResult> {
     }
     throw error;
   }
-}
-
-export function cleanupCrawlJob(jobId: string) {
-  crawledUrls.delete(jobId);
 }

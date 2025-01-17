@@ -1,7 +1,7 @@
 import { supabase } from "../lib/supabaseClient";
 import { AxiosResponse } from "axios";
 import * as cheerio from "cheerio";
-import { CrawlDebugInfo } from "..";
+import { CrawlDebugInfo } from "../types/crawlTypes";
 
 export async function loadContentIntoCheerio(
   jobId: string,
