@@ -1,14 +1,45 @@
 // routes/crawlRoutes.ts
-import { Router } from "express";
+import { NextFunction, Request, Response, Router } from "express";
 import { v4 as uuidv4 } from "uuid";
-import { UrlValidator } from "../utils/UrlValidator";
-import { domainGuard } from "../utils/DomainGuard";
+import { supabase } from "../lib/supabaseClient";
 import { ServiceFactory } from "../services/serviceFactory";
+import { domainGuard } from "../utils/DomainGuard";
+import { UrlValidator } from "../utils/UrlValidator";
 
 const router = Router();
 
-router.post("/", async (req, res) => {
-  const { startUrl, maxDepth = 3, allowedDomains } = req.body;
+const verifyAuth = async (req: Request, res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader?.startsWith("Bearer ")) {
+    res.status(401).json({ error: "Missing authorization header" });
+  }
+
+  const token = authHeader?.split(" ")[1];
+
+  try {
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser(token);
+
+    if (error || !user) {
+      res.status(401).json({ error: "Invalid token" });
+    }
+
+    req.user = user ?? undefined;
+
+    next();
+  } catch (error) {
+    console.error("Auth error:", error);
+    res.status(401).json({ error: "Authentication failed" });
+  }
+};
+
+router.post("/", verifyAuth, async (req, res) => {
+  const { startUrl, maxDepth = 3, allowedDomains, userId } = req.body;
+
+  console.log("REQ>BODY", req.body);
   const services = ServiceFactory.getServices();
 
   if (!startUrl || !UrlValidator.isValidUrl(startUrl)) {
@@ -36,6 +67,7 @@ router.post("/", async (req, res) => {
       start_url: startUrl,
       max_depth: maxDepth,
       status: "pending",
+      user_id: userId,
     });
 
     // Add to queue
@@ -63,7 +95,7 @@ router.post("/", async (req, res) => {
 });
 
 // GET /api/crawl/:jobId - Get status of a specific crawl job
-router.get("/:jobId", async (req, res) => {
+router.get("/:jobId", verifyAuth, async (req, res) => {
   const { jobId } = req.params;
   const services = ServiceFactory.getServices();
 

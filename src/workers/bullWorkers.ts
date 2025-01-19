@@ -71,7 +71,7 @@ const worker = new Worker(
       if (upsertResult?.[0]?.inserted) {
         console.log(`New page inserted: ${normalizedUrl}`);
 
-        console.log({ crawlId });
+        await services.dbService.incrementUserPagesCrawled(crawlId);
         // Increment total pages crawled
         await services.dbService.incrementPagesCount(crawlId);
 

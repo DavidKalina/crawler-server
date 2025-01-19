@@ -9,6 +9,7 @@ export interface CrawlJobRecord {
   created_at?: string;
   completed_at?: string;
   processing_stats?: Record<string, any>;
+  user_id: string;
 }
 
 // services/databaseService.ts
@@ -86,6 +87,22 @@ export class DatabaseService {
     });
     if (error) throw error;
     return data;
+  }
+
+  async incrementUserPagesCrawled(crawlId: string) {
+    await this.supabase
+      .from("web_crawl_jobs")
+      .select("user_id")
+      .eq("id", crawlId)
+      .single()
+      .then(({ data: jobData, error: jobError }) => {
+        if (jobError) throw jobError;
+        if (!jobData?.user_id) throw new Error("No user_id found for crawl job");
+
+        return this.supabase.rpc("increment_user_pages_used", {
+          user_id: jobData.user_id,
+        });
+      });
   }
 
   async logCrawlOperation(data: {

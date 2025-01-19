@@ -11,6 +11,7 @@ services:
       - PORT=3000
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_KEY=${SUPABASE_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
     stop_signal: SIGTERM
     stop_grace_period: 30s
     depends_on:
