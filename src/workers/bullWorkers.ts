@@ -6,6 +6,24 @@ import { ServiceFactory } from "../services/serviceFactory";
 import { crawlPage } from "../utils/crawlPage";
 import { UrlValidator } from "../utils/UrlValidator";
 
+async function handleJobCompletion(crawlId: string, jobId: string, status: "failed" | "crawled") {
+  const services = ServiceFactory.getServices();
+
+  await services.redisService.removeActiveJob(crawlId, jobId);
+  const activeJobCount = await services.redisService.getActiveJobCount(crawlId);
+
+  if (activeJobCount === 0) {
+    console.log(`Finalizing crawl ${crawlId} with status: ${status}`);
+    await services.dbService.updateJobStatus(crawlId, status, {
+      completed_at: new Date().toISOString(),
+    });
+    await Promise.all([services.redisService.cleanup(crawlId)]);
+    console.log(`Crawl ${crawlId} finalized and cleaned up`);
+  }
+
+  await services.queueUpdateService.broadcastQueueUpdate();
+}
+
 const worker = new Worker(
   "crawl-jobs",
   async (job) => {
@@ -67,11 +85,22 @@ const worker = new Worker(
         throw upsertError;
       }
 
+      if (upsertResult?.[0]?.quota_exceeded) {
+        await handleJobCompletion(crawlId, jobId, "failed");
+
+        // Return a specific error object that can be handled by the failure handler
+        const quotaError = {
+          name: "QuotaExceededError",
+          message: `Monthly quota exceeded. ${upsertResult[0].pages_remaining} pages remaining`,
+        };
+
+        throw quotaError;
+      }
+
       // Only increment counter and process links if this was a new page
       if (upsertResult?.[0]?.inserted) {
         console.log(`New page inserted: ${normalizedUrl}`);
 
-        await services.dbService.incrementUserPagesCrawled(crawlId);
         // Increment total pages crawled
         await services.dbService.incrementPagesCount(crawlId);
 
@@ -169,9 +198,14 @@ worker.on("failed", async (job, error) => {
     const services = ServiceFactory.getServices();
     const crawlId = job.data.id;
     const jobId = job.id!;
-    console.log(`Handling failure for job ${jobId}:`, error);
 
-    await services.dbService.incrementErrorsCount(crawlId);
+    // Only increment errors count if it's not a quota error
+    if (error?.name !== "QuotaExceededError") {
+      console.log(`Handling failure for job ${jobId}:`, error);
+      await services.dbService.incrementErrorsCount(crawlId);
+    } else {
+      console.log(`Handling quota exceeded for job ${jobId}:`, error);
+    }
 
     await services.redisService.removeActiveJob(crawlId, jobId);
     const activeJobCount = await services.redisService.getActiveJobCount(crawlId);
