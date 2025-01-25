@@ -52,10 +52,20 @@ export class QueueService {
     );
   }
 
-  async removeJob(jobId: string) {
-    const job = await this.queue.getJob(jobId);
-    if (job) {
-      await job.remove();
+  async removeJob(jobId: string): Promise<void> {
+    console.log(`[QueueService] Attempting to remove job ${jobId}`);
+    try {
+      const job = await this.queue.getJob(jobId);
+      if (job) {
+        // Force remove the job even if it's locked
+        await job.remove({ force: true });
+        console.log(`[QueueService] Successfully removed job ${jobId}`);
+      } else {
+        console.log(`[QueueService] Job ${jobId} not found`);
+      }
+    } catch (error) {
+      console.error(`[QueueService] Error removing job ${jobId}:`, error);
+      throw error;
     }
   }
 
