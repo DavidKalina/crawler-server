@@ -16,7 +16,7 @@ export const WORKER_CONNECTION_CONFIG: WorkerOptions = {
   removeOnFail: {
     count: 0,
   },
-  concurrency: 5,
+  concurrency: 10,
   // Stalled job settings
   stalledInterval: STALLED_CHECK_INTERVAL,
   maxStalledCount: MAX_STALLED_COUNT,

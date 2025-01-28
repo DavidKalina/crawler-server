@@ -7,6 +7,7 @@ export interface CrawlJob {
   maxDepth: number;
   currentDepth: number;
   parentUrl?: string;
+  userId: string;
 }
 
 export interface CrawlDebugInfo {
