@@ -8,7 +8,13 @@ import "./workers/bullWorkers";
 import { ServiceFactory } from "./services/serviceFactory";
 import setupWebSocket from "./config/websocket";
 import { wsService } from "./services/wsService"; // Import the singleton instance
+import { jobScheduler } from "./services/jobScheduler";
 console.log("Worker started and listening for jobs...");
+
+jobScheduler.start(5000);
+
+console.log("Scheduler started and listening for jobs...");
+
 dotenv.config();
 
 export const app = express();
@@ -18,6 +24,8 @@ export const clients = new Set<WSClient>();
 const cleanup = async () => {
   console.log("Server shutting down...");
   await ServiceFactory.cleanup();
+  await jobScheduler.stop();
+
   server.close(() => {
     console.log("Server closed");
     process.exit(0);

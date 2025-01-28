@@ -37,10 +37,8 @@ const verifyAuth = async (req: Request, res: Response, next: NextFunction) => {
 };
 
 router.post("/", verifyAuth, async (req, res) => {
-  const { startUrl, maxDepth = 3, allowedDomains, userId } = req.body;
-
-  console.log("REQ>BODY", req.body);
   const services = ServiceFactory.getServices();
+  const { startUrl, maxDepth = 3, allowedDomains, userId } = req.body;
 
   if (!startUrl || !UrlValidator.isValidUrl(startUrl)) {
     res.status(400).json({ error: "Invalid start URL" });
@@ -48,7 +46,6 @@ router.post("/", verifyAuth, async (req, res) => {
   }
 
   try {
-    // Configure domain guard
     if (allowedDomains) {
       domainGuard.configure({
         allowedDomains,
@@ -61,7 +58,7 @@ router.post("/", verifyAuth, async (req, res) => {
     // Create job ID
     const jobId = uuidv4();
 
-    // Create database record
+    // Create database record in pending state
     await services.dbService.createCrawlJob({
       id: jobId,
       start_url: startUrl,
@@ -70,30 +67,15 @@ router.post("/", verifyAuth, async (req, res) => {
       user_id: userId,
     });
 
-    // Add to queue
-    await services.queueService.addJob({
-      id: jobId,
-      url: startUrl,
-      maxDepth,
-      currentDepth: 0,
-    });
-
-    // Broadcast update
-    await services.queueUpdateService.broadcastQueueUpdate();
-
-    // Log operation
-
     res.json({
-      message: "Crawl job started",
+      message: "Crawl job created",
       jobId,
     });
   } catch (error) {
-    console.log("ERROR", error);
-    console.error("Failed to start crawl job:", error);
-    res.status(500).json({ error: "Failed to start crawl job" });
+    console.error("Failed to create crawl job:", error);
+    res.status(500).json({ error: "Failed to create crawl job" });
   }
 });
-
 // GET /api/crawl/:jobId - Get status of a specific crawl job
 router.get("/:jobId", verifyAuth, async (req, res) => {
   const { jobId } = req.params;
