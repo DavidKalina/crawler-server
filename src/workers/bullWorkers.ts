@@ -6,6 +6,9 @@ import { ServiceFactory } from "../services/serviceFactory";
 import { crawlPage } from "../utils/crawlPage";
 import { UrlValidator } from "../utils/UrlValidator";
 
+// Keep track of the current crawl job being processed
+let currentCrawlId: string | null = null;
+
 async function handleJobCompletion(crawlId: string, jobId: string, status: "failed" | "crawled") {
   const services = ServiceFactory.getServices();
 
@@ -17,8 +20,14 @@ async function handleJobCompletion(crawlId: string, jobId: string, status: "fail
     await services.dbService.updateJobStatus(crawlId, status, {
       completed_at: new Date().toISOString(),
     });
-    await Promise.all([services.redisService.cleanup(crawlId)]);
+    await Promise.all([
+      services.redisService.cleanup(crawlId),
+      // Cancel any delayed jobs from this crawl
+      crawlQueue.clean(0, 0, "delayed"),
+    ]);
     console.log(`Crawl ${crawlId} finalized and cleaned up`);
+    // Reset current crawl ID when the job is complete
+    currentCrawlId = null;
   }
 
   await services.queueUpdateService.broadcastQueueUpdate();
@@ -32,44 +41,62 @@ const worker = new Worker(
     const jobId = job.id!;
     const url = job.data.url;
 
-    console.log(`Starting job ${jobId} for URL: ${url}`);
-
     try {
+      // Check for quota exceeded before starting
+      const { data: quotaCheck } = await supabase.rpc("check_crawl_quota", {
+        p_crawl_job_id: crawlId,
+      });
+
+      if (quotaCheck?.[0]?.quota_exceeded) {
+        await handleJobCompletion(crawlId, jobId, "failed");
+        throw {
+          name: "QuotaExceededError",
+          message: `Monthly quota exceeded. ${quotaCheck[0].pages_remaining} pages remaining`,
+        };
+      }
+
+      // Check if this is a new crawl job
+      if (currentCrawlId === null) {
+        currentCrawlId = crawlId;
+      } else if (currentCrawlId !== crawlId) {
+        // If we're already processing a different crawl, delay this job
+        const delayMs = 5000;
+        console.log(
+          `Worker busy with crawl ${currentCrawlId}, delaying job ${jobId} for ${delayMs}ms`
+        );
+        await job.moveToDelayed(Date.now() + delayMs);
+        return { delayed: true, message: "Worker busy with another crawl" };
+      }
+
+      console.log(`Starting job ${jobId} for URL: ${url}`);
+
       const activeJobCount = await services.redisService.getActiveJobCount(crawlId);
       if (activeJobCount === 0) {
         // This is the first job, update status to running
         await services.dbService.updateJobStatus(crawlId, "running");
         console.log(`Updated crawl ${crawlId} status to running`);
       }
-      // Normalize URL
-      const normalizedUrl = UrlValidator.normalizeUrl(url);
 
+      const normalizedUrl = UrlValidator.normalizeUrl(url);
       if (!normalizedUrl) {
         console.log(`Invalid URL format: ${url}`);
         throw new Error("Invalid URL format");
       }
 
-      // Fast check in Redis if URL was already processed
       const isProcessed = await services.redisService.isUrlProcessed(crawlId, normalizedUrl);
       if (isProcessed) {
         console.log(`Skipping already processed URL: ${normalizedUrl}`);
         return { skipped: true, url: normalizedUrl };
       }
 
-      // Add URL to Redis and track this job in the database
       await Promise.all([
         services.redisService.addProcessedUrl(crawlId, normalizedUrl),
         services.redisService.addActiveJob(crawlId, jobId),
       ]);
 
-      // Attempt to crawl the page
       console.log(`Crawling page: ${normalizedUrl}`);
       const result = await crawlPage(job.data);
-      console.log(`[Debug] Processing URL batch. Total URLs found: ${result.links.length}`);
 
-      console.log(`Crawl completed for: ${normalizedUrl}, found ${result.links.length} links`);
-
-      // Try to insert the page
       const { data: upsertResult, error: upsertError } = await supabase.rpc("upsert_crawled_page", {
         p_url: result.url,
         p_crawl_job_id: crawlId,
@@ -87,135 +114,89 @@ const worker = new Worker(
 
       if (upsertResult?.[0]?.quota_exceeded) {
         await handleJobCompletion(crawlId, jobId, "failed");
-
-        // Return a specific error object that can be handled by the failure handler
-        const quotaError = {
+        throw {
           name: "QuotaExceededError",
           message: `Monthly quota exceeded. ${upsertResult[0].pages_remaining} pages remaining`,
         };
-
-        throw quotaError;
       }
 
       // Only increment counter and process links if this was a new page
       if (upsertResult?.[0]?.inserted) {
-        console.log(`New page inserted: ${normalizedUrl}`);
-
-        // Increment total pages crawled
         await services.dbService.incrementPagesCount(crawlId);
 
-        // Add new links to the queue if within depth limit
         if (result.depth < job.data.maxDepth) {
-          console.log(`Processing ${result.links.length} links from ${normalizedUrl}`);
-
-          // Filter and normalize URLs
           const normalizedUrls = result.links
             .map((url) => UrlValidator.normalizeUrl(url))
             .filter(Boolean) as string[];
 
-          console.log(`[Debug] After normalization: ${normalizedUrls.length} URLs`);
-
-          // Batch check URLs in Redis
           const processedStatuses = await services.redisService.areUrlsProcessed(
             crawlId,
             normalizedUrls
           );
-
           const newUrls = normalizedUrls.filter((_, index) => !processedStatuses[index]);
 
-          console.log(`[Debug] After Redis check: ${newUrls.length} URLs to process`);
-
-          console.log(`Found ${newUrls.length} new unique URLs to process`);
-
-          // Add filtered URLs to the queue
-          for (const newUrl of newUrls) {
-            try {
-              const newJob = await crawlQueue.add(
-                "crawl-jobs",
-                {
-                  id: crawlId,
-                  url: newUrl,
-                  maxDepth: job.data.maxDepth,
-                  currentDepth: result.depth + 1,
-                  parentUrl: result.url,
-                },
-                {
-                  removeOnComplete: false,
-                  removeOnFail: true,
-                }
-              );
-              await services.redisService.addActiveJob(crawlId, newJob.id!);
-              // console.log(`Added new job ${newJob.id} for URL: ${newUrl}`);
-            } catch (error) {
-              console.error(`Failed to add job for URL ${newUrl}:`, error);
-            }
-          }
-
-          // Batch add new URLs to Redis processed set
+          // Add all new jobs in a batch
+          await Promise.all(
+            newUrls.map(async (newUrl) => {
+              try {
+                const newJob = await crawlQueue.add(
+                  "crawl-jobs",
+                  {
+                    id: crawlId,
+                    url: newUrl,
+                    maxDepth: job.data.maxDepth,
+                    currentDepth: result.depth + 1,
+                    parentUrl: result.url,
+                  },
+                  {
+                    removeOnComplete: true,
+                    removeOnFail: true,
+                  }
+                );
+                await services.redisService.addActiveJob(crawlId, newJob.id!);
+              } catch (error) {
+                console.error(`Failed to add job for URL ${newUrl}:`, error);
+              }
+            })
+          );
         }
-      } else {
-        console.log(`Duplicate page skipped: ${normalizedUrl}`);
       }
 
-      console.log(`Job ${jobId} completed successfully`);
-
-      await services.redisService.addProcessedUrl(crawlId, url);
       return result;
     } catch (error) {
       console.error(`Job ${jobId} failed:`, error);
-
       throw error;
     }
   },
-  WORKER_CONNECTION_CONFIG
+  {
+    ...WORKER_CONNECTION_CONFIG,
+    limiter: {
+      max: 1,
+      duration: 1000,
+    },
+  }
 );
 
 // Completion handler
 worker.on("completed", async (job) => {
-  const services = ServiceFactory.getServices();
   const crawlId = job.data.id;
   const jobId = job.id!;
-
-  console.log(`Handling completion for job ${jobId}`);
-
-  await services.redisService.removeActiveJob(crawlId, jobId);
-  const activeJobCount = await services.redisService.getActiveJobCount(crawlId);
-
-  if (activeJobCount === 0) {
-    console.log(`Completing crawl ${crawlId}`);
-    await services.dbService.updateJobStatus(crawlId, "crawled", {
-      completed_at: new Date().toISOString(),
-    });
-    await Promise.all([services.redisService.cleanup(crawlId)]);
-    console.log(`Crawl ${crawlId} completed and cleaned up`);
-  }
-
-  await services.queueUpdateService.broadcastQueueUpdate();
+  await handleJobCompletion(crawlId, jobId, "crawled");
 });
 
+// Failure handler
 worker.on("failed", async (job, error) => {
   if (job) {
     const services = ServiceFactory.getServices();
     const crawlId = job.data.id;
     const jobId = job.id!;
 
-    // Only increment errors count if it's not a quota error
     if (error?.name !== "QuotaExceededError") {
       console.log(`Handling failure for job ${jobId}:`, error);
       await services.dbService.incrementErrorsCount(crawlId);
-    } else {
-      console.log(`Handling quota exceeded for job ${jobId}:`, error);
     }
 
-    await services.redisService.removeActiveJob(crawlId, jobId);
-    const activeJobCount = await services.redisService.getActiveJobCount(crawlId);
-
-    if (activeJobCount === 0) {
-      console.log(`Marking crawl ${crawlId} as failed`);
-      await services.dbService.updateJobStatus(crawlId, "failed");
-      await Promise.all([services.redisService.cleanup(crawlId)]);
-      console.log(`Crawl ${crawlId} marked as failed and cleaned up`);
-    }
+    await handleJobCompletion(crawlId, jobId, "failed");
   }
   await ServiceFactory.getServices().queueUpdateService.broadcastQueueUpdate();
 });

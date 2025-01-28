@@ -27,69 +27,49 @@ export class JobScheduler {
 
   private async checkAndScheduleJobs() {
     try {
-      // Get all users with pending jobs
-      const { data: userResults, error: userError } = await supabase
-        .from("web_crawl_jobs")
-        .select("user_id")
-        .eq("status", "pending")
-        .order("created_at", { ascending: true });
+      // First, check if there are any active jobs in the queue
+      const queueStats = await this.services.queueService.getQueueStats();
 
-      if (userError) {
-        console.error("Error fetching users with pending jobs:", userError);
+      // If there are active jobs, skip scheduling new ones
+      if (queueStats.activeCount > 0) {
+        console.log("Queue has active jobs, skipping new job scheduling");
         return;
       }
 
-      // Get unique user IDs
-      const userIds = [...new Set(userResults?.map((r) => r.user_id))];
+      // Get all pending jobs ordered by creation date
+      const { data: pendingJobs, error: jobError } = await supabase
+        .from("web_crawl_jobs")
+        .select("*")
+        .eq("status", "pending")
+        .order("created_at", { ascending: true })
+        .limit(1);
 
-      for (const userId of userIds) {
-        // Check if user has any running jobs
-        const { data: runningJobs, error: runningError } = await supabase
-          .from("web_crawl_jobs")
-          .select("id")
-          .eq("user_id", userId)
-          .eq("status", "running");
+      if (jobError) {
+        console.error("Error fetching pending jobs:", jobError);
+        return;
+      }
 
-        if (runningError) {
-          console.error(`Error checking running jobs for user ${userId}:`, runningError);
-          continue;
-        }
+      // If we have a pending job, schedule it
+      if (pendingJobs?.[0]) {
+        const job = pendingJobs[0];
 
-        // If user has no running jobs, get their oldest pending job
-        if (!runningJobs?.length) {
-          const { data: nextJob, error: nextJobError } = await supabase.rpc(
-            "start_next_pending_job",
-            {
-              p_user_id: userId,
-            }
-          );
+        try {
+          // Add job to the queue
+          await this.services.queueService.addJob({
+            id: job.id,
+            url: job.start_url,
+            maxDepth: job.max_depth,
+            currentDepth: 0,
+            userId: job.user_id,
+          });
 
-          if (nextJobError) {
-            console.error(`Error starting next job for user ${userId}:`, nextJobError);
-            continue;
-          }
+          console.log(`Scheduled job ${job.id} for user ${job.user_id}`);
+          await this.services.queueUpdateService.broadcastQueueUpdate();
+        } catch (error) {
+          console.error(`Error adding job ${job.id} to queue:`, error);
 
-          if (nextJob?.[0]) {
-            const job = nextJob[0];
-            try {
-              // Add job to the queue
-              await this.services.queueService.addJob({
-                id: job.id,
-                url: job.start_url,
-                maxDepth: job.max_depth,
-                currentDepth: 0,
-                userId: job.user_id,
-              });
-
-              console.log(`Scheduled job ${job.id} for user ${userId}`);
-              await this.services.queueUpdateService.broadcastQueueUpdate();
-            } catch (error) {
-              console.error(`Error adding job ${job.id} to queue:`, error);
-
-              // Revert job status if queue addition fails
-              await supabase.from("web_crawl_jobs").update({ status: "pending" }).eq("id", job.id);
-            }
-          }
+          // Revert job status if queue addition fails
+          await supabase.from("web_crawl_jobs").update({ status: "pending" }).eq("id", job.id);
         }
       }
     } catch (error) {
