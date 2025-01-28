@@ -200,7 +200,7 @@ const worker = new Worker(
     ...WORKER_CONNECTION_CONFIG,
     concurrency: MAX_CONCURRENT_URLS, // Allow multiple concurrent job processing
     limiter: {
-      max: 10, // Allow more requests per duration
+      max: 20, // Allow more requests per duration
       duration: 1000, // Per second
     },
   }
