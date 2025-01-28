@@ -145,7 +145,7 @@ const worker = new Worker(
                 }
               );
               await services.redisService.addActiveJob(crawlId, newJob.id!);
-              console.log(`Added new job ${newJob.id} for URL: ${newUrl}`);
+              // console.log(`Added new job ${newJob.id} for URL: ${newUrl}`);
             } catch (error) {
               console.error(`Failed to add job for URL ${newUrl}:`, error);
             }

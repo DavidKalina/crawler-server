@@ -4,6 +4,77 @@ import { QueueJobInfo } from "../types/queueTypes";
 
 const router = Router();
 
+// POST /api/queue/stop/:crawlId - Stop a specific crawl job
+// POST /api/queue/stop/:crawlId - Stop a specific crawl job
+router.post("/stop/:crawlId", async (req, res) => {
+  const { queueService, dbService, redisService } = ServiceFactory.getServices();
+
+  try {
+    const { crawlId } = req.params;
+    console.log(`[Stop Endpoint] Attempting to stop crawl: ${crawlId}`);
+
+    let jobs: QueueJobInfo[] = [];
+    try {
+      jobs = await queueService.getJobsByCrawlId(crawlId);
+      console.log(`[Stop Endpoint] Found ${jobs.length} jobs to process`);
+    } catch (error) {
+      console.error("[Stop Endpoint] Error fetching jobs:", error);
+      throw error;
+    }
+
+    const activeJobs = jobs.filter((job) => job.state === "active" || job.state === "waiting");
+
+    console.log(`[Stop Endpoint] Found ${activeJobs.length} active/waiting jobs to stop`);
+
+    // Remove jobs with error handling for each job
+    const removalResults = await Promise.allSettled(
+      activeJobs.map(async (job) => {
+        try {
+          await queueService.removeJob(job.id);
+          await redisService.removeActiveJob(crawlId, job.id);
+          return { jobId: job.id, success: true };
+        } catch (error) {
+          console.error(`[Stop Endpoint] Failed to remove job ${job.id}:`, error);
+          return { jobId: job.id, success: false, error };
+        }
+      })
+    );
+
+    // Count successful removals
+    const successfulRemovals = removalResults.filter(
+      (result) => result.status === "fulfilled" && result.value.success
+    ).length;
+
+    console.log(
+      `[Stop Endpoint] Successfully removed ${successfulRemovals} out of ${activeJobs.length} jobs`
+    );
+
+    // Update job status and clean up
+    await dbService.updateJobStatus(crawlId, "stopping", {
+      completed_at: new Date().toISOString(),
+    });
+
+    await redisService.cleanup(crawlId);
+    await ServiceFactory.getServices().queueUpdateService.broadcastQueueUpdate();
+
+    res.json({
+      success: true,
+      summary: {
+        crawl_id: crawlId,
+        total_jobs: activeJobs.length,
+        jobs_stopped: successfulRemovals,
+        status: "stopped",
+      },
+    });
+  } catch (error) {
+    console.error(`[Stop Endpoint] Failed to stop crawl ${req.params.crawlId}:`, error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to stop crawl",
+      details: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
 // POST /api/queue/clear - Clear all jobs from the queue
 router.post("/clear", async (_, res) => {
   const { queueService, dbService, redisService } = ServiceFactory.getServices();
