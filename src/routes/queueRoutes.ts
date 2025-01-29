@@ -57,6 +57,10 @@ router.post("/stop/:crawlId", async (req, res) => {
     await redisService.cleanup(crawlId);
     await ServiceFactory.getServices().queueUpdateService.broadcastQueueUpdate();
 
+    await dbService.updateJobStatus(crawlId, "crawled", {
+      completed_at: new Date().toISOString(),
+    });
+
     res.json({
       success: true,
       summary: {
