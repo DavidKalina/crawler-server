@@ -2,11 +2,14 @@
 import { Application } from "express";
 import express from "express";
 import cors from "cors";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 export const setupMiddleware = (app: Application) => {
   // CORS configuration
   const corsOptions = {
-    origin: ["http://localhost:5000"],
+    origin: [process.env.FRONTEND_URL!],
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
