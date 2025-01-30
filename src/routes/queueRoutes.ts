@@ -1,73 +1,52 @@
 import { Router } from "express";
 import { ServiceFactory } from "../services/serviceFactory";
 import { QueueJobInfo } from "../types/queueTypes";
+import { stopCrawl } from "../workers/bullWorkers";
 
 const router = Router();
 
 // POST /api/queue/stop/:crawlId - Stop a specific crawl job
 // POST /api/queue/stop/:crawlId - Stop a specific crawl job
 router.post("/stop/:crawlId", async (req, res) => {
-  const { queueService, dbService, redisService } = ServiceFactory.getServices();
+  const { queueService } = ServiceFactory.getServices();
 
   try {
     const { crawlId } = req.params;
     console.log(`[Stop Endpoint] Attempting to stop crawl: ${crawlId}`);
 
-    let jobs: QueueJobInfo[] = [];
+    // Get initial job count for reporting
+    let initialJobCount = 0;
     try {
-      jobs = await queueService.getJobsByCrawlId(crawlId);
-      console.log(`[Stop Endpoint] Found ${jobs.length} jobs to process`);
+      const jobs = await queueService.getJobsByCrawlId(crawlId);
+      initialJobCount = jobs.filter(
+        (job) => job.state === "active" || job.state === "waiting"
+      ).length;
+      console.log(`[Stop Endpoint] Found ${initialJobCount} active/waiting jobs before stopping`);
     } catch (error) {
-      console.error("[Stop Endpoint] Error fetching jobs:", error);
-      throw error;
+      console.error("[Stop Endpoint] Error fetching initial job count:", error);
+      // Continue with stop process even if we can't get the initial count
     }
 
-    const activeJobs = jobs.filter((job) => job.state === "active" || job.state === "waiting");
+    // Call the new stopCrawl method
+    await stopCrawl(crawlId);
 
-    console.log(`[Stop Endpoint] Found ${activeJobs.length} active/waiting jobs to stop`);
-
-    // Remove jobs with error handling for each job
-    const removalResults = await Promise.allSettled(
-      activeJobs.map(async (job) => {
-        try {
-          await queueService.removeJob(job.id);
-          await redisService.removeActiveJob(crawlId, job.id);
-          return { jobId: job.id, success: true };
-        } catch (error) {
-          console.error(`[Stop Endpoint] Failed to remove job ${job.id}:`, error);
-          return { jobId: job.id, success: false, error };
-        }
-      })
-    );
-
-    // Count successful removals
-    const successfulRemovals = removalResults.filter(
-      (result) => result.status === "fulfilled" && result.value.success
+    // Get final job count to verify stop was successful
+    const remainingJobs = await queueService.getJobsByCrawlId(crawlId);
+    const remainingActiveJobs = remainingJobs.filter(
+      (job) => job.state === "active" || job.state === "waiting"
     ).length;
 
     console.log(
-      `[Stop Endpoint] Successfully removed ${successfulRemovals} out of ${activeJobs.length} jobs`
+      `[Stop Endpoint] Crawl ${crawlId} stop initiated. Remaining active jobs: ${remainingActiveJobs}`
     );
-
-    // Update job status and clean up
-    await dbService.updateJobStatus(crawlId, "stopping", {
-      completed_at: new Date().toISOString(),
-    });
-
-    await redisService.cleanup(crawlId);
-    await ServiceFactory.getServices().queueUpdateService.broadcastQueueUpdate();
-
-    await dbService.updateJobStatus(crawlId, "crawled", {
-      completed_at: new Date().toISOString(),
-    });
 
     res.json({
       success: true,
       summary: {
         crawl_id: crawlId,
-        total_jobs: activeJobs.length,
-        jobs_stopped: successfulRemovals,
-        status: "stopped",
+        initial_active_jobs: initialJobCount,
+        remaining_active_jobs: remainingActiveJobs,
+        status: "stopping",
       },
     });
   } catch (error) {
