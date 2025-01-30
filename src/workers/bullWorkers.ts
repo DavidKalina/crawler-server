@@ -142,9 +142,12 @@ const worker = new Worker(
           return { skipped: true, message: "Crawl is stopping" };
         }
 
-        const activeJobCount = await services.redisService.getActiveJobCount(crawlId);
-        if (activeJobCount === 0) {
-          await services.dbService.updateJobStatus(crawlId, "running");
+        // Only update status to running if we're not in a stopping state
+        if (!stoppingCrawls.has(crawlId)) {
+          const activeJobCount = await services.redisService.getActiveJobCount(crawlId);
+          if (activeJobCount === 0) {
+            await services.dbService.updateJobStatus(crawlId, "running");
+          }
         }
 
         const normalizedUrl = UrlValidator.normalizeUrl(url);
