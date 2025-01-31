@@ -2,7 +2,7 @@
 import { NextFunction, Request, Response, Router } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { supabase } from "../lib/supabaseClient";
-import { ServiceFactory } from "../services/serviceFactory";
+import { serviceFactory } from "../services/serviceFactory";
 import { domainGuard } from "../utils/DomainGuard";
 import { UrlValidator } from "../utils/UrlValidator";
 
@@ -37,7 +37,7 @@ const verifyAuth = async (req: Request, res: Response, next: NextFunction) => {
 };
 
 router.post("/", verifyAuth, async (req, res) => {
-  const services = ServiceFactory.getServices();
+  const services = serviceFactory.getServices();
   const { startUrl, maxDepth = 3, allowedDomains, userId } = req.body;
 
   if (!startUrl || !UrlValidator.isValidUrl(startUrl)) {
@@ -79,7 +79,7 @@ router.post("/", verifyAuth, async (req, res) => {
 // GET /api/crawl/:jobId - Get status of a specific crawl job
 router.get("/:jobId", verifyAuth, async (req, res) => {
   const { jobId } = req.params;
-  const services = ServiceFactory.getServices();
+  const services = serviceFactory.getServices();
 
   try {
     // Get database job and queue information in parallel

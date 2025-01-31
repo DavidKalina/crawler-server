@@ -5,10 +5,10 @@ import type { WebSocket as WSClient } from "ws";
 import { setupMiddleware } from "./middleware";
 import { setupRoutes } from "./routes";
 import "./workers/bullWorkers";
-import { ServiceFactory } from "./services/serviceFactory";
 import setupWebSocket from "./config/websocket";
 import { wsService } from "./services/wsService"; // Import the singleton instance
 import { jobScheduler } from "./services/jobScheduler";
+import { serviceFactory } from "./services/serviceFactory";
 console.log("Worker started and listening for jobs...");
 
 jobScheduler.start(5000);
@@ -23,7 +23,7 @@ export const clients = new Set<WSClient>();
 
 const cleanup = async () => {
   console.log("Server shutting down...");
-  await ServiceFactory.cleanup();
+  await serviceFactory.cleanup();
   await jobScheduler.stop();
 
   server.close(() => {

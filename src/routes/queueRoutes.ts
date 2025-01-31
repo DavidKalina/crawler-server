@@ -1,14 +1,15 @@
 import { Router } from "express";
-import { ServiceFactory } from "../services/serviceFactory";
+import { serviceFactory } from "../services/serviceFactory";
 import { QueueJobInfo } from "../types/queueTypes";
 import { stopCrawl } from "../workers/bullWorkers";
+import { crawlQueue } from "../queues/crawlQueue";
 
 const router = Router();
 
 // POST /api/queue/stop/:crawlId - Stop a specific crawl job
 // POST /api/queue/stop/:crawlId - Stop a specific crawl job
 router.post("/stop/:crawlId", async (req, res) => {
-  const { queueService } = ServiceFactory.getServices();
+  const { queueService } = serviceFactory.getServices();
 
   try {
     const { crawlId } = req.params;
@@ -60,7 +61,7 @@ router.post("/stop/:crawlId", async (req, res) => {
 });
 // POST /api/queue/clear - Clear all jobs from the queue
 router.post("/clear", async (_, res) => {
-  const { queueService, dbService, redisService } = ServiceFactory.getServices();
+  const { queueService, dbService, redisService } = serviceFactory.getServices();
 
   try {
     // Get jobs before clearing them
@@ -108,7 +109,7 @@ router.post("/clear", async (_, res) => {
 
 // POST /api/queue/reset - Reset the queue
 router.post("/reset", async (_, res) => {
-  const { queueService, dbService, redisService } = ServiceFactory.getServices();
+  const { queueService, dbService, redisService } = serviceFactory.getServices();
 
   try {
     const jobs = await queueService.getRecentJobs(999999999);
@@ -152,7 +153,7 @@ router.post("/reset", async (_, res) => {
         results.errors.push(`Failed to process crawl ${crawlId}: ${errorMessage}`);
       }
     }
-    await ServiceFactory.cleanup();
+    await serviceFactory.cleanup();
 
     res.json({
       success: true,
@@ -177,7 +178,7 @@ router.post("/reset", async (_, res) => {
 // routes/queueRoutes.ts
 
 router.get("/status/:jobId", async (req, res) => {
-  const { queueService } = ServiceFactory.getServices();
+  const { queueService } = serviceFactory.getServices();
 
   try {
     const { jobId } = req.params;
@@ -211,6 +212,72 @@ router.get("/status/:jobId", async (req, res) => {
     console.error("Failed to fetch queue status:", error);
     res.status(500).json({
       error: "Failed to fetch queue status",
+      details: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+// GET /api/queue/jobs - Get all jobs and their status
+router.get("/jobs", async (req, res) => {
+  const { queueService } = serviceFactory.getServices();
+
+  try {
+    // Get all jobs
+    const jobs = await crawlQueue.getJobs([
+      "active",
+      "completed",
+      "failed",
+      "delayed",
+      "paused",
+      "prioritized",
+      "wait",
+      "waiting",
+      "waiting-children",
+    ]);
+
+    // Filter by state if specified
+    const state = req.query.state as string;
+    const filteredJobs = state ? jobs.filter((job) => job.state === state) : jobs;
+
+    // Calculate queue statistics
+    const queueStats = {
+      totalJobs: filteredJobs.length,
+      waitingCount: filteredJobs.filter((job) => job.state === "waiting").length,
+      activeCount: filteredJobs.filter((job) => job.state === "active").length,
+      completedCount: filteredJobs.filter((job) => job.state === "completed").length,
+      failedCount: filteredJobs.filter((job) => job.state === "failed").length,
+    };
+
+    // Group jobs by crawl ID
+    const jobsByCrawlId = filteredJobs.reduce((acc, job) => {
+      const crawlId = job.data.id;
+      if (!acc[crawlId]) {
+        acc[crawlId] = [];
+      }
+      acc[crawlId].push({
+        id: job.id,
+        state: job.state,
+        data: {
+          url: job.data.url,
+          currentDepth: job.data.currentDepth,
+          maxDepth: job.data.maxDepth,
+          crawlId: job.data.id,
+          createdAt: new Date(),
+        },
+      });
+      return acc;
+    }, {} as Record<string, any[]>);
+
+    res.json({
+      success: true,
+      queueStats,
+      jobs: jobsByCrawlId,
+    });
+  } catch (error) {
+    console.error("Failed to fetch jobs:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch jobs",
       details: error instanceof Error ? error.message : "Unknown error",
     });
   }

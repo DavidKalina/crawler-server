@@ -1,8 +1,8 @@
-import { ServiceFactory } from "../services/serviceFactory";
+import { serviceFactory } from "../services/serviceFactory";
 import { supabase } from "../lib/supabaseClient";
 
 export class JobScheduler {
-  private services = ServiceFactory.getServices();
+  private services = serviceFactory.getServices();
   private isRunning = false;
   private checkInterval: NodeJS.Timeout | null = null;
 

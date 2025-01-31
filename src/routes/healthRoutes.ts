@@ -1,12 +1,12 @@
 // routes/healthRoutes.ts
 import { Router } from "express";
-import { ServiceFactory } from "../services/serviceFactory";
+import { serviceFactory } from "../services/serviceFactory";
 
 const router = Router();
 
 // GET /api/health - Get system health status
 router.get("/", async (_, res) => {
-  const { healthService } = ServiceFactory.getServices();
+  const { healthService } = serviceFactory.getServices();
 
   try {
     const { status, statusCode } = await healthService.getSystemHealth();

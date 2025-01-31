@@ -2,7 +2,7 @@ import { Worker } from "bullmq";
 import { WORKER_CONNECTION_CONFIG } from "../constants/workerConnectionConfig";
 import { supabase } from "../lib/supabaseClient";
 import { crawlQueue } from "../queues/crawlQueue";
-import { ServiceFactory } from "../services/serviceFactory";
+import { serviceFactory } from "../services/serviceFactory";
 import { crawlPage } from "../utils/crawlPage";
 import { UrlValidator } from "../utils/UrlValidator";
 
@@ -18,7 +18,7 @@ const MAX_CONCURRENT_URLS = 10;
 const stoppingCrawls = new Set<string>();
 
 async function handleJobCompletion(crawlId: string, jobId: string, status: "failed" | "crawled") {
-  const services = ServiceFactory.getServices();
+  const services = serviceFactory.getServices();
 
   await services.redisService.removeActiveJob(crawlId, jobId);
   const activeJobCount = await services.redisService.getActiveJobCount(crawlId);
@@ -76,16 +76,16 @@ async function stopCrawl(crawlId: string) {
   );
 
   // If no active jobs, finalize immediately
-  const activeJobCount = await ServiceFactory.getServices().redisService.getActiveJobCount(crawlId);
+  const activeJobCount = await serviceFactory.getServices().redisService.getActiveJobCount(crawlId);
   if (activeJobCount === 0) {
     await handleJobCompletion(crawlId, "stop", "crawled");
   }
 }
 
 const worker = new Worker(
-  "crawl-jobs",
+  crawlQueue.name,
   async (job) => {
-    const services = ServiceFactory.getServices();
+    const services = serviceFactory.getServices();
     const crawlId = job.data.id;
     const jobId = job.id!;
     const url = job.data.url;
@@ -214,23 +214,14 @@ const worker = new Worker(
                 await Promise.all(
                   newUrls.map(async (newUrl, index) => {
                     try {
-                      const newJob = await crawlQueue.add(
-                        "crawl-jobs",
-                        {
-                          id: crawlId,
-                          url: newUrl,
-                          maxDepth: job.data.maxDepth,
-                          currentDepth: result.depth + 1,
-                          parentUrl: result.url,
-                          priority: priority,
-                        },
-                        {
-                          priority,
-                          delay: index * 100,
-                          removeOnComplete: true,
-                          removeOnFail: true,
-                        }
-                      );
+                      const newJob = await services.queueService.addJob({
+                        id: crawlId,
+                        url: newUrl,
+                        maxDepth: job.data.maxDepth,
+                        currentDepth: result.depth + 1,
+                        parentUrl: result.url,
+                        userId: "",
+                      });
                       await services.redisService.addActiveJob(crawlId, newJob.id!);
                     } catch (error) {
                       console.error(`Failed to add job for URL ${newUrl}:`, error);
@@ -273,7 +264,7 @@ worker.on("completed", async (job) => {
 
 worker.on("failed", async (job, error) => {
   if (job) {
-    const services = ServiceFactory.getServices();
+    const services = serviceFactory.getServices();
     const crawlId = job.data.id;
     const jobId = job.id!;
 
@@ -284,7 +275,7 @@ worker.on("failed", async (job, error) => {
 
     await handleJobCompletion(crawlId, jobId, "failed");
   }
-  await ServiceFactory.getServices().queueUpdateService.broadcastQueueUpdate();
+  await serviceFactory.getServices().queueUpdateService.broadcastQueueUpdate();
 });
 
 worker.on("error", (error) => {
