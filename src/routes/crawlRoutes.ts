@@ -39,48 +39,6 @@ const verifyAuth = async (req: Request, res: Response, next: NextFunction) => {
   }
 };
 
-router.post("/", verifyAuth, async (req, res) => {
-  const services = serviceFactory.getServices();
-  const { startUrl, maxDepth = 3, allowedDomains, userId } = req.body;
-
-  if (!startUrl || !UrlValidator.isValidUrl(startUrl)) {
-    res.status(400).json({ error: "Invalid start URL" });
-    return;
-  }
-
-  try {
-    if (allowedDomains) {
-      domainGuard.configure({
-        allowedDomains,
-        allowSubdomains: true,
-      });
-    } else {
-      domainGuard.configureForUrl(startUrl);
-    }
-
-    // Create job ID
-    const jobId = uuidv4();
-
-    // Create database record in pending state
-    await services.dbService.createCrawlJob({
-      id: jobId,
-      start_url: startUrl,
-      max_depth: maxDepth,
-      status: "pending",
-      user_id: userId,
-    });
-
-    res.json({
-      message: "Crawl job created",
-      jobId,
-    });
-  } catch (error) {
-    console.error("Failed to create crawl job:", error);
-    res.status(500).json({ error: "Failed to create crawl job" });
-  }
-});
-// GET /api/crawl/:jobId - Get status of a specific crawl job
-
 router.post("/stop/:jobId", verifyAuth, async (req, res) => {
   const { jobId } = req.params;
   const services = serviceFactory.getServices();
@@ -125,5 +83,47 @@ router.post("/stop/:jobId", verifyAuth, async (req, res) => {
     return;
   }
 });
+
+router.post("/", verifyAuth, async (req, res) => {
+  const services = serviceFactory.getServices();
+  const { startUrl, maxDepth = 3, allowedDomains, userId } = req.body;
+
+  if (!startUrl || !UrlValidator.isValidUrl(startUrl)) {
+    res.status(400).json({ error: "Invalid start URL" });
+    return;
+  }
+
+  try {
+    if (allowedDomains) {
+      domainGuard.configure({
+        allowedDomains,
+        allowSubdomains: true,
+      });
+    } else {
+      domainGuard.configureForUrl(startUrl);
+    }
+
+    // Create job ID
+    const jobId = uuidv4();
+
+    // Create database record in pending state
+    await services.dbService.createCrawlJob({
+      id: jobId,
+      start_url: startUrl,
+      max_depth: maxDepth,
+      status: "pending",
+      user_id: userId,
+    });
+
+    res.json({
+      message: "Crawl job created",
+      jobId,
+    });
+  } catch (error) {
+    console.error("Failed to create crawl job:", error);
+    res.status(500).json({ error: "Failed to create crawl job" });
+  }
+});
+// GET /api/crawl/:jobId - Get status of a specific crawl job
 
 export const crawlRouter = router;
