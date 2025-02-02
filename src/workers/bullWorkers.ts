@@ -155,7 +155,10 @@ async function processCompletedJob(
     p_processing_status: "completed",
   });
 
-  if (upsertError) throw upsertError;
+  if (upsertError) {
+    console.log("ERROR UPSERTING PAGE", upsertError);
+    throw upsertError;
+  }
 
   if (upsertResult?.[0]?.quota_exceeded) {
     throw {
