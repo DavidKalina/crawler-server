@@ -32,6 +32,23 @@ const worker = new Worker(
       const services = serviceFactory.getServices();
       const { id: crawlId, url, maxDepth, priority = 1 } = job.data;
 
+      const { data: crawl, error } = await supabase
+        .from("web_crawl_jobs")
+        .select("id")
+        .eq("id", crawlId)
+        .single();
+
+      if (error || !crawl) {
+        console.log(`Crawl ${crawlId} no longer exists, removing job`);
+        // Clean up any related jobs and data
+        await Promise.all([
+          services.redisService.clearActiveJobs(crawlId),
+          services.queueService.removeJob(crawlId),
+          crawlQueue.remove(crawlId), // Remove all jobs for this crawl
+        ]);
+        return { skipped: true, message: "Crawl no longer exists" };
+      }
+
       // Check if job should be processed
       if (await services.queueService.isJobStopping(crawlId)) {
         return { skipped: true, message: "Crawl is stopping or stopped" };
