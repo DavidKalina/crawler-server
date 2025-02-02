@@ -165,7 +165,6 @@ async function processCompletedJob(
         return;
       }
       console.log("ERROR UPSERTING PAGE", upsertError);
-      throw upsertError;
     }
 
     if (upsertResult?.[0]?.quota_exceeded) {
