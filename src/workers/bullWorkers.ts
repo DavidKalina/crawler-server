@@ -206,7 +206,7 @@ async function processCompletedJob(
     if (upsertError) {
       if (upsertError.code === "PGRST116") {
         console.log(`Crawl job ${crawlId} no longer exists in database`);
-        await services.redisService.clearActiveJobs(jobId);
+        await services.redisService.clearActiveJobs(crawlId);
         await services.queueService.removeJob(crawlId);
         // Maybe add logic to clean up this worker
         return;
@@ -275,5 +275,9 @@ async function switchToHigherPriorityCrawl(newCrawlId: string, newPriority: numb
   currentCrawlPriority = newPriority;
   activeUrlCount = 0;
 }
+
+process.on("SIGTERM", async () => {
+  await worker.close();
+});
 
 export default worker;

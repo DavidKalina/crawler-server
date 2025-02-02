@@ -2,11 +2,10 @@
 import { supabase } from "../lib/supabaseClient";
 import { crawlQueue } from "../queues/crawlQueue";
 import { DatabaseService } from "./databaseService";
-import { queueService, QueueService } from "./queueService";
-import { QueueUpdateService } from "./queueUpdateService";
-import { wsService } from "./wsService";
 import { HealthService } from "./healthService";
+import { queueService, QueueService } from "./queueService";
 import { RedisService } from "./redisService";
+import { wsService } from "./wsService";
 
 export interface Services {
   wsService: typeof wsService;
