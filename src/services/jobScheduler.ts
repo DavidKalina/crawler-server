@@ -49,7 +49,6 @@ export class JobScheduler {
 
       if (!pendingJobs) {
         console.log("No jobs pending jobs:", jobError);
-
         return;
       }
 

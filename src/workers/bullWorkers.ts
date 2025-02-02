@@ -84,7 +84,7 @@ worker.on("failed", async (job, error) => {
 
     if (error?.name !== "QuotaExceededError") {
       console.log(`Job ${job.id} failed:`, error);
-      await services.dbService.incrementErrorsCount(crawlId);
+      // await services.dbService.incrementErrorsCount(crawlId);
     }
   }
 });
