@@ -81,7 +81,7 @@ router.post("/", verifyAuth, async (req, res) => {
 });
 // GET /api/crawl/:jobId - Get status of a specific crawl job
 
-router.post("/:jobId/stop", verifyAuth, async (req, res) => {
+router.post("/stop/:jobId", verifyAuth, async (req, res) => {
   const { jobId } = req.params;
   const services = serviceFactory.getServices();
 
