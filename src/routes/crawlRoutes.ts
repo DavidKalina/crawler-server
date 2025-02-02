@@ -80,36 +80,6 @@ router.post("/", verifyAuth, async (req, res) => {
   }
 });
 // GET /api/crawl/:jobId - Get status of a specific crawl job
-router.get("/:jobId", verifyAuth, async (req, res) => {
-  const { jobId } = req.params;
-  const services = serviceFactory.getServices();
-
-  try {
-    // Get database job and queue information in parallel
-    const [databaseJob, queueJobs, queueStats] = await Promise.all([
-      services.dbService.getJobById(jobId),
-      services.queueService.getJobsByCrawlId(jobId),
-      services.queueService.getQueueStats(),
-    ]);
-
-    // Format response
-    const response = {
-      databaseJob,
-      queueInfo: {
-        jobs: queueJobs,
-        ...queueStats,
-      },
-    };
-
-    res.json(response);
-  } catch (error) {
-    console.error("Failed to fetch enhanced job status:", error);
-    res.status(500).json({
-      error: "Failed to fetch job status",
-      details: error instanceof Error ? error.message : "Unknown error",
-    });
-  }
-});
 
 router.post("/:jobId/stop", verifyAuth, async (req, res) => {
   const { jobId } = req.params;
