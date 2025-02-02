@@ -27,16 +27,11 @@ export class JobScheduler {
 
   private async checkAndScheduleJobs() {
     try {
-      // First, check if there are any active jobs in the queue
-      const queueStats = await this.services.queueService.getQueueStats();
+      // Retrieve the waiting jobs from BullMQ
+      // (Assuming getWaitingJobs returns an array of job objects with an `id` property)
+      const waitingJobs = await this.services.queueService.getWaitingJobs();
 
-      // If there are active jobs, skip scheduling new ones
-      if (queueStats.activeCount > 0) {
-        console.log("Queue has active jobs, skipping new job scheduling");
-        return;
-      }
-
-      // Get all pending jobs ordered by creation date
+      // Fetch the earliest pending job from your database
       const { data: pendingJobs, error: jobError } = await supabase
         .from("web_crawl_jobs")
         .select("*")
@@ -49,12 +44,19 @@ export class JobScheduler {
         return;
       }
 
-      // If we have a pending job, schedule it
       if (pendingJobs?.[0]) {
         const job = pendingJobs[0];
 
+        // Check if this job is already in the waiting queue
+        const isAlreadyQueued = waitingJobs.some((queuedJob) => queuedJob.data.id === job.id);
+
+        if (isAlreadyQueued) {
+          console.log(`Job ${job.id} is already in the waiting queue. Skipping scheduling.`);
+          return;
+        }
+
+        // If not queued yet, schedule the job
         try {
-          // Add job to the queue
           await this.services.queueService.addJob({
             id: job.id,
             url: job.start_url,
@@ -62,14 +64,15 @@ export class JobScheduler {
             currentDepth: 0,
             userId: job.user_id,
           });
-
           console.log(`Scheduled job ${job.id} for user ${job.user_id}`);
           await this.services.queueUpdateService.broadcastQueueUpdate();
+
+          // Optionally, update the job status here if you want to keep your DB in sync
+          // await supabase.from("web_crawl_jobs").update({ status: "active" }).eq("id", job.id);
         } catch (error) {
           console.error(`Error adding job ${job.id} to queue:`, error);
-
-          // Revert job status if queue addition fails
-          await supabase.from("web_crawl_jobs").update({ status: "pending" }).eq("id", job.id);
+          // Optionally revert job status if necessary:
+          // await supabase.from("web_crawl_jobs").update({ status: "pending" }).eq("id", job.id);
         }
       }
     } catch (error) {

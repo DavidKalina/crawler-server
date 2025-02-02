@@ -88,6 +88,10 @@ export class QueueService {
     };
   }
 
+  async getWaitingJobs() {
+    return await crawlQueue.getWaiting();
+  }
+
   async addJob(data: CrawlJob) {
     return crawlQueue.add("crawl-jobs", data);
   }
