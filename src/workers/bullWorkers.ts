@@ -145,32 +145,32 @@ async function processCompletedJob(
     return;
   }
 
-  const { data: upsertResult, error: upsertError } = await supabase.rpc("upsert_crawled_page", {
-    p_url: result.url,
-    p_crawl_job_id: crawlId,
-    p_title: result.title,
-    p_content_text: result.content,
-    p_extracted_content: result.extractedContent,
-    p_depth: result.depth,
-    p_processing_status: "completed",
-  });
+  // const { data: upsertResult, error: upsertError } = await supabase.rpc("upsert_crawled_page", {
+  //   p_url: result.url,
+  //   p_crawl_job_id: crawlId,
+  //   p_title: result.title,
+  //   p_content_text: result.content,
+  //   p_extracted_content: result.extractedContent,
+  //   p_depth: result.depth,
+  //   p_processing_status: "completed",
+  // });
 
-  if (upsertError) {
-    console.log("ERROR UPSERTING PAGE", upsertError);
-    throw upsertError;
-  }
+  // if (upsertError) {
+  //   console.log("ERROR UPSERTING PAGE", upsertError);
+  //   throw upsertError;
+  // }
 
-  if (upsertResult?.[0]?.quota_exceeded) {
-    throw {
-      name: "QuotaExceededError",
-      message: `Monthly quota exceeded. ${upsertResult[0].pages_remaining} pages remaining`,
-    };
-  }
+  // if (upsertResult?.[0]?.quota_exceeded) {
+  //   throw {
+  //     name: "QuotaExceededError",
+  //     message: `Monthly quota exceeded. ${upsertResult[0].pages_remaining} pages remaining`,
+  //   };
+  // }
 
-  if (upsertResult?.[0]?.inserted) {
-    await services.dbService.incrementPagesCount(crawlId);
-    await processNewUrls(crawlId, result, jobData);
-  }
+  // if (upsertResult?.[0]?.inserted) {
+  //   await services.dbService.incrementPagesCount(crawlId);
+  //   await processNewUrls(crawlId, result, jobData);
+  // }
 }
 
 async function processNewUrls(crawlId: string, result: CrawlResult, jobData: any) {
