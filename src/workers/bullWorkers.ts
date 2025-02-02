@@ -145,38 +145,42 @@ async function processCompletedJob(
     return;
   }
 
-  const { data: upsertResult, error: upsertError } = await supabase.rpc("upsert_crawled_page", {
-    p_url: result.url,
-    p_crawl_job_id: crawlId,
-    p_title: result.title,
-    p_content_text: result.content,
-    p_extracted_content: result.extractedContent,
-    p_depth: result.depth,
-    p_processing_status: "completed",
-  });
+  try {
+    const { data: upsertResult, error: upsertError } = await supabase.rpc("upsert_crawled_page", {
+      p_url: result.url,
+      p_crawl_job_id: crawlId,
+      p_title: result.title,
+      p_content_text: result.content,
+      p_extracted_content: result.extractedContent,
+      p_depth: result.depth,
+      p_processing_status: "completed",
+    });
 
-  if (upsertError) {
-    if (upsertError.code === "PGRST116") {
-      console.log(`Crawl job ${crawlId} no longer exists in database`);
-      await services.redisService.clearActiveJobs(jobId);
-      await services.queueService.removeJob(crawlId);
-      // Maybe add logic to clean up this worker
-      return;
+    if (upsertError) {
+      if (upsertError.code === "PGRST116") {
+        console.log(`Crawl job ${crawlId} no longer exists in database`);
+        await services.redisService.clearActiveJobs(jobId);
+        await services.queueService.removeJob(crawlId);
+        // Maybe add logic to clean up this worker
+        return;
+      }
+      console.log("ERROR UPSERTING PAGE", upsertError);
+      throw upsertError;
     }
-    console.log("ERROR UPSERTING PAGE", upsertError);
-    throw upsertError;
-  }
 
-  if (upsertResult?.[0]?.quota_exceeded) {
-    throw {
-      name: "QuotaExceededError",
-      message: `Monthly quota exceeded. ${upsertResult[0].pages_remaining} pages remaining`,
-    };
-  }
+    if (upsertResult?.[0]?.quota_exceeded) {
+      throw {
+        name: "QuotaExceededError",
+        message: `Monthly quota exceeded. ${upsertResult[0].pages_remaining} pages remaining`,
+      };
+    }
 
-  if (upsertResult?.[0]?.inserted) {
-    await services.dbService.incrementPagesCount(crawlId);
-    await processNewUrls(crawlId, result, jobData);
+    if (upsertResult?.[0]?.inserted) {
+      await services.dbService.incrementPagesCount(crawlId);
+      await processNewUrls(crawlId, result, jobData);
+    }
+  } catch (error) {
+    console.log("ERROR OCCURED TRYING TO INVOKE RPC");
   }
 }
 
