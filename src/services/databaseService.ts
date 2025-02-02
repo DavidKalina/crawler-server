@@ -74,7 +74,12 @@ export class DatabaseService {
       .select()
       .single();
 
-    if (error) throw error;
+    console.log("ID", id);
+
+    if (error) {
+      console.error(`ERROR_UPDATING_JOB_STATUS`);
+      throw error;
+    }
     return data;
   }
 
