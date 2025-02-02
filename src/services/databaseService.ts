@@ -3,7 +3,15 @@ export interface CrawlJobRecord {
   id: string;
   start_url: string;
   max_depth: number;
-  status: "pending" | "active" | "completed" | "failed" | "stopping" | "crawled" | "running";
+  status:
+    | "pending"
+    | "active"
+    | "completed"
+    | "failed"
+    | "stopping"
+    | "crawled"
+    | "running"
+    | "canceled";
   total_pages_crawled?: number;
   stop_requested_at?: string;
   created_at?: string;
@@ -87,6 +95,16 @@ export class DatabaseService {
     });
     if (error) throw error;
     return data;
+  }
+
+  async getJobStatus(id: string) {
+    const { data, error } = await this.supabase
+      .from("web_crawl_jobs")
+      .select("status")
+      .eq("id", id)
+      .single();
+    if (error) throw error;
+    return data.status;
   }
 
   async incrementUserPagesCrawled(crawlId: string) {

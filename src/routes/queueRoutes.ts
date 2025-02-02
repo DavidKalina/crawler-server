@@ -1,64 +1,13 @@
 import { Router } from "express";
 import { serviceFactory } from "../services/serviceFactory";
 import { QueueJobInfo } from "../types/queueTypes";
-import { stopCrawl } from "../workers/bullWorkers";
 import { crawlQueue } from "../queues/crawlQueue";
 
 const router = Router();
 
 // POST /api/queue/stop/:crawlId - Stop a specific crawl job
 // POST /api/queue/stop/:crawlId - Stop a specific crawl job
-router.post("/stop/:crawlId", async (req, res) => {
-  const { queueService } = serviceFactory.getServices();
 
-  try {
-    const { crawlId } = req.params;
-    console.log(`[Stop Endpoint] Attempting to stop crawl: ${crawlId}`);
-
-    // Get initial job count for reporting
-    let initialJobCount = 0;
-    try {
-      const jobs = await queueService.getJobsByCrawlId(crawlId);
-      initialJobCount = jobs.filter(
-        (job) => job.state === "active" || job.state === "waiting"
-      ).length;
-      console.log(`[Stop Endpoint] Found ${initialJobCount} active/waiting jobs before stopping`);
-    } catch (error) {
-      console.error("[Stop Endpoint] Error fetching initial job count:", error);
-      // Continue with stop process even if we can't get the initial count
-    }
-
-    // Call the new stopCrawl method
-    await stopCrawl(crawlId);
-
-    // Get final job count to verify stop was successful
-    const remainingJobs = await queueService.getJobsByCrawlId(crawlId);
-    const remainingActiveJobs = remainingJobs.filter(
-      (job) => job.state === "active" || job.state === "waiting"
-    ).length;
-
-    console.log(
-      `[Stop Endpoint] Crawl ${crawlId} stop initiated. Remaining active jobs: ${remainingActiveJobs}`
-    );
-
-    res.json({
-      success: true,
-      summary: {
-        crawl_id: crawlId,
-        initial_active_jobs: initialJobCount,
-        remaining_active_jobs: remainingActiveJobs,
-        status: "stopping",
-      },
-    });
-  } catch (error) {
-    console.error(`[Stop Endpoint] Failed to stop crawl ${req.params.crawlId}:`, error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to stop crawl",
-      details: error instanceof Error ? error.message : "Unknown error",
-    });
-  }
-});
 // POST /api/queue/clear - Clear all jobs from the queue
 router.post("/clear", async (_, res) => {
   const { queueService, dbService, redisService } = serviceFactory.getServices();

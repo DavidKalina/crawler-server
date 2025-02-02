@@ -13,6 +13,7 @@ const verifyAuth = async (req: Request, res: Response, next: NextFunction) => {
 
   if (!authHeader?.startsWith("Bearer ")) {
     res.status(401).json({ error: "Missing authorization header" });
+    return;
   }
 
   const token = authHeader?.split(" ")[1];
@@ -25,6 +26,7 @@ const verifyAuth = async (req: Request, res: Response, next: NextFunction) => {
 
     if (error || !user) {
       res.status(401).json({ error: "Invalid token" });
+      return;
     }
 
     req.user = user ?? undefined;
@@ -33,6 +35,7 @@ const verifyAuth = async (req: Request, res: Response, next: NextFunction) => {
   } catch (error) {
     console.error("Auth error:", error);
     res.status(401).json({ error: "Authentication failed" });
+    return;
   }
 };
 
@@ -105,6 +108,51 @@ router.get("/:jobId", verifyAuth, async (req, res) => {
       error: "Failed to fetch job status",
       details: error instanceof Error ? error.message : "Unknown error",
     });
+  }
+});
+
+router.post("/:jobId/stop", verifyAuth, async (req, res) => {
+  const { jobId } = req.params;
+  const services = serviceFactory.getServices();
+
+  try {
+    // Verify job exists and belongs to user
+    const job = await services.dbService.getJobById(jobId);
+    if (!job) {
+      res.status(404).json({ error: "Crawl job not found" });
+      return;
+    }
+
+    if (job.user_id !== req.user?.id) {
+      res.status(403).json({ error: "Not authorized to stop this crawl" });
+      return;
+    }
+
+    // Check if job is already stopped or completed
+    if (["stopped", "completed", "failed"].includes(job.status)) {
+      res.status(400).json({
+        error: "Cannot stop job",
+        message: `Job is already in ${job.status} state`,
+      });
+      return;
+    }
+
+    // Stop the crawl
+    await services.queueService.stopCrawl(jobId);
+
+    res.json({
+      message: "Crawl stop initiated",
+      jobId,
+    });
+    return;
+  } catch (error) {
+    console.log(error);
+    console.error("Failed to stop crawl job:", error);
+    res.status(500).json({
+      error: "Failed to stop crawl job",
+      details: error instanceof Error ? error.message : "Unknown error",
+    });
+    return;
   }
 });
 
