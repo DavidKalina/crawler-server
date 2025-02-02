@@ -3,6 +3,7 @@ import { JobType } from "bullmq";
 import { CrawlJob } from "../types/crawlTypes";
 import { QueueJobInfo, QueueStats } from "../types/queueTypes";
 import { crawlQueue } from "../queues/crawlQueue";
+import { serviceFactory } from "./serviceFactory";
 
 export class QueueService {
   private static instance: QueueService | null = null;
@@ -18,6 +19,69 @@ export class QueueService {
       QueueService.instance = new QueueService();
     }
     return QueueService.instance;
+  }
+
+  async stopCrawl(crawlId: string): Promise<void> {
+    console.log(`[QueueService] Stopping crawl ${crawlId}`);
+    const services = serviceFactory.getServices();
+
+    try {
+      // Update job status to stopping
+      await services.dbService.updateJobStatus(crawlId, "stopping", {
+        stop_requested_at: new Date().toISOString(),
+      });
+
+      // Get all jobs for this crawl
+      const crawlJobs = await this.getJobsByCrawlId(crawlId);
+
+      const allJobs = await crawlQueue.getJobs();
+
+      console.log(
+        "TOTAL JOBS",
+        allJobs.map((job) => job.data.id)
+      );
+
+      // Remove all non-active jobs
+      const nonActiveJobs = crawlJobs.filter((job) => job.state !== "active");
+      console.log(`[QueueService] Removing ${nonActiveJobs.length} non-active jobs`);
+
+      await Promise.all(
+        nonActiveJobs.map(async (job) => {
+          try {
+            await this.removeJob(job.id);
+          } catch (error) {
+            console.error(`[QueueService] Error removing job ${job.id}:`, error);
+          }
+        })
+      );
+
+      // Count remaining active jobs
+      const activeJobs = crawlJobs.filter((job) => job.state === "active");
+
+      console.log(`[QueueService] ${activeJobs.length} active jobs will complete naturally`);
+
+      // If no active jobs, mark as stopped immediately
+      if (activeJobs.length === 0) {
+        await services.dbService.updateJobStatus(crawlId, "crawled", {
+          completed_at: new Date().toISOString(),
+        });
+      }
+
+      // Clean up any delayed jobs
+      await crawlQueue.clean(0, 0, "delayed");
+
+      // Broadcast queue update
+      await services.queueUpdateService.broadcastQueueUpdate();
+    } catch (error) {
+      console.error(`[QueueService] Error stopping crawl ${crawlId}:`, error);
+      throw error;
+    }
+  }
+
+  async isJobStopping(crawlId: string): Promise<boolean> {
+    const services = serviceFactory.getServices();
+    const status = await services.dbService.getJobStatus(crawlId);
+    return status === "stopping" || status === "stopped";
   }
 
   async getQueueStats(): Promise<QueueStats> {

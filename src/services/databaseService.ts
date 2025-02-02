@@ -89,6 +89,16 @@ export class DatabaseService {
     return data;
   }
 
+  async getJobStatus(id: string) {
+    const { data, error } = await this.supabase
+      .from("web_crawl_jobs")
+      .select("status")
+      .eq("id", id)
+      .single();
+    if (error) throw error;
+    return data.status;
+  }
+
   async incrementUserPagesCrawled(crawlId: string) {
     await this.supabase
       .from("web_crawl_jobs")
