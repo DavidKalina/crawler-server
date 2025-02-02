@@ -82,42 +82,68 @@ worker.on("completed", async (job, result: CrawlResult) => {
 });
 
 worker.on("failed", async (job, error) => {
-  if (job) {
-    const services = serviceFactory.getServices();
-    const crawlId = job.data.id;
+  try {
+    if (job) {
+      const services = serviceFactory.getServices();
+      const crawlId = job.data.id;
 
-    if (error?.name !== "QuotaExceededError") {
-      console.log(`Job ${job.id} failed:`, error);
-      await services.dbService.incrementErrorsCount(crawlId);
+      if (error?.name !== "QuotaExceededError") {
+        console.log(`Job ${job.id} failed:`, error);
+        try {
+          await services.dbService.incrementErrorsCount(crawlId);
+        } catch (err) {
+          console.log("Failed to increment error count:", err);
+          // Don't rethrow
+        }
+      }
     }
+  } catch (err) {
+    console.error("Error handling job failure:", err);
+    // Don't rethrow to prevent unhandled rejection
   }
 });
 
 async function shouldDelayJob(job: Job): Promise<boolean> {
-  const { id: crawlId, priority = 1 } = job.data;
+  try {
+    const { id: crawlId, priority = 1 } = job.data;
 
-  if (currentCrawlId === null) {
-    currentCrawlId = crawlId;
-    currentCrawlPriority = priority;
-    activeUrlCount = 0;
-    return false;
-  }
-
-  if (currentCrawlId !== crawlId) {
-    if (priority > (currentCrawlPriority || 0)) {
-      await switchToHigherPriorityCrawl(crawlId, priority);
+    if (currentCrawlId === null) {
+      currentCrawlId = crawlId;
+      currentCrawlPriority = priority;
+      activeUrlCount = 0;
       return false;
     }
-    await job.moveToDelayed(Date.now() + 5000);
-    return true;
-  }
 
-  if (activeUrlCount >= MAX_CONCURRENT_URLS) {
-    await job.moveToDelayed(Date.now() + 1000);
-    return true;
-  }
+    if (currentCrawlId !== crawlId) {
+      if (priority > (currentCrawlPriority || 0)) {
+        await switchToHigherPriorityCrawl(crawlId, priority);
+        return false;
+      }
+      try {
+        await job.moveToDelayed(Date.now() + 5000);
+      } catch (err) {
+        console.log(`Failed to delay job ${job.id}, might be already finished:`, err);
+        // Don't rethrow - just let it complete
+      }
+      return true;
+    }
 
-  return false;
+    if (activeUrlCount >= MAX_CONCURRENT_URLS) {
+      try {
+        await job.moveToDelayed(Date.now() + 1000);
+      } catch (err) {
+        console.log(`Failed to delay job ${job.id}, might be already finished:`, err);
+        // Don't rethrow - just let it complete
+      }
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.error("Error in shouldDelayJob:", error);
+    // If we fail to delay, better to just let it process
+    return false;
+  }
 }
 
 async function setupJobProcessing(crawlId: string, jobId: string, normalizedUrl: string) {
