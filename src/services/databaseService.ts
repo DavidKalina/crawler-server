@@ -33,7 +33,10 @@ export class DatabaseService {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.log(`ERROR_CREATING_CRAWL_JOB`);
+      throw error;
+    }
     return newJob;
   }
 
@@ -44,7 +47,10 @@ export class DatabaseService {
       .order("created_at", { ascending: false })
       .limit(limit);
 
-    if (error) throw error;
+    if (error) {
+      console.log(`ERROR_GETTING_RECENT_JOBS`);
+      throw error;
+    }
     return data;
   }
 
@@ -55,7 +61,10 @@ export class DatabaseService {
       .eq("id", id)
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.log(`ERROR_GETTING_JOB_BY_ID`, id);
+      throw error;
+    }
     return data;
   }
 
@@ -77,7 +86,7 @@ export class DatabaseService {
     console.log("ID", id);
 
     if (error) {
-      console.error(`ERROR_UPDATING_JOB_STATUS`);
+      console.log(`ERROR_UPDATING_JOB_STATUS`);
       throw error;
     }
     return data;
@@ -89,7 +98,10 @@ export class DatabaseService {
       increment_by: 1,
     });
 
-    if (error) throw error;
+    if (error) {
+      console.log(`ERROR_INCREMENTING_PAGES_COUNT`);
+      throw error;
+    }
     return data;
   }
 
@@ -98,7 +110,10 @@ export class DatabaseService {
       job_id: id,
       increment_by: 1,
     });
-    if (error) throw error;
+    if (error) {
+      console.log(`ERROR_INCREMENING_ERRORS_COUNT`);
+      throw error;
+    }
     return data;
   }
 
@@ -108,7 +123,10 @@ export class DatabaseService {
       .select("status")
       .eq("id", id)
       .single();
-    if (error) throw error;
+    if (error) {
+      console.log(`ERROR_GETTING_JOB_STATUS`);
+      throw error;
+    }
     return data.status;
   }
 
@@ -153,7 +171,10 @@ export class DatabaseService {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.log(`ERROR_STOPPING_JOB`);
+      throw error;
+    }
     return data;
   }
   async updateJobAfterQueueClear(id: string, jobCount: number) {
@@ -162,16 +183,15 @@ export class DatabaseService {
       .update({
         status: "stopped",
         stop_requested_at: new Date().toISOString(),
-        processing_stats: {
-          cleared_at: new Date().toISOString(),
-          cleared_job_count: jobCount,
-        },
       })
       .eq("id", id)
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.log(`ERROR_UPDATING_JOB_AFTER_QUEUE_CLEAR`);
+      throw error;
+    }
     return data;
   }
 
@@ -181,16 +201,15 @@ export class DatabaseService {
       .update({
         status: "stopped",
         stop_requested_at: new Date().toISOString(),
-        processing_stats: {
-          reset_at: new Date().toISOString(),
-          cleared_job_count: jobCount,
-        },
       })
       .eq("id", id)
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.log(`ERROR_UPDATING_JOB_AFTER_QUEUE_RESET`);
+      throw error;
+    }
     return data;
   }
 }
