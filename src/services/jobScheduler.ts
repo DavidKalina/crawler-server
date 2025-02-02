@@ -32,6 +32,9 @@ export class JobScheduler {
       const waitingJobs = await this.services.queueService.getWaitingJobs();
 
       // Fetch the earliest pending job from your database
+
+      try {
+      } catch (error) {}
       const { data: pendingJobs, error: jobError } = await supabase
         .from("web_crawl_jobs")
         .select("*")
@@ -41,6 +44,12 @@ export class JobScheduler {
 
       if (jobError) {
         console.error("Error fetching pending jobs:", jobError);
+        return;
+      }
+
+      if (!pendingJobs) {
+        console.log("No jobs pending jobs:", jobError);
+
         return;
       }
 
