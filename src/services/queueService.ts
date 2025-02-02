@@ -31,15 +31,10 @@ export class QueueService {
         stop_requested_at: new Date().toISOString(),
       });
 
+      await services.redisService.clearActiveJobs(crawlId);
+
       // Get all jobs for this crawl
       const crawlJobs = await this.getJobsByCrawlId(crawlId);
-
-      const allJobs = await crawlQueue.getJobs();
-
-      console.log(
-        "TOTAL JOBS",
-        allJobs.map((job) => job.data.id)
-      );
 
       // Remove all non-active jobs
       const nonActiveJobs = crawlJobs.filter((job) => job.state !== "active");
@@ -62,7 +57,7 @@ export class QueueService {
 
       // If no active jobs, mark as stopped immediately
       if (activeJobs.length === 0) {
-        await services.dbService.updateJobStatus(crawlId, "crawled", {
+        await services.dbService.updateJobStatus(crawlId, "canceled", {
           completed_at: new Date().toISOString(),
         });
       }

@@ -36,6 +36,19 @@ export class RedisService {
     return await this.redis.scard(key);
   }
 
+  async clearActiveJobs(crawlId: string): Promise<void> {
+    const key = this.getActiveJobsKey(crawlId);
+    console.log(`[RedisService] Clearing active jobs for crawl ${crawlId}`);
+
+    // Get current active jobs for logging
+    const activeJobs = await this.getActiveJobs(crawlId);
+    console.log(`[RedisService] Found ${Object.keys(activeJobs).length} active jobs to clear`);
+
+    // Delete the active jobs hash
+    await this.redis.del(key);
+    console.log(`[RedisService] Cleared active jobs for crawl ${crawlId}`);
+  }
+
   async addProcessedUrls(crawlId: string, urls: string[]): Promise<void> {
     if (urls.length === 0) return;
 
