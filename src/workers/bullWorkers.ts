@@ -25,40 +25,44 @@ interface CrawlResult {
   message?: string;
 }
 
-// Core worker logic
 const worker = new Worker(
   crawlQueue.name,
   async (job) => {
-    const services = serviceFactory.getServices();
-    const { id: crawlId, url, maxDepth, priority = 1 } = job.data;
-
-    // Check if job should be processed
-    if (await services.queueService.isJobStopping(crawlId)) {
-      return { skipped: true, message: "Crawl is stopping or stopped" };
-    }
-
-    // Handle job priority and concurrency
-    if (await shouldDelayJob(job)) {
-      return { delayed: true, message: "Job delayed due to conditions" };
-    }
-
-    activeUrlCount++;
     try {
-      const normalizedUrl = UrlValidator.normalizeUrl(url);
-      if (!normalizedUrl) {
-        throw new Error("Invalid URL format");
+      const services = serviceFactory.getServices();
+      const { id: crawlId, url, maxDepth, priority = 1 } = job.data;
+
+      // Check if job should be processed
+      if (await services.queueService.isJobStopping(crawlId)) {
+        return { skipped: true, message: "Crawl is stopping or stopped" };
       }
 
-      if (await services.redisService.isUrlProcessed(crawlId, normalizedUrl)) {
-        return { skipped: true, url: normalizedUrl };
+      // Handle job priority and concurrency
+      if (await shouldDelayJob(job)) {
+        return { delayed: true, message: "Job delayed due to conditions" };
       }
 
-      await setupJobProcessing(crawlId, job.id!, normalizedUrl);
-      console.log(`Crawling page: ${normalizedUrl} (Active URLs: ${activeUrlCount})`);
+      activeUrlCount++;
+      try {
+        const normalizedUrl = UrlValidator.normalizeUrl(url);
+        if (!normalizedUrl) {
+          return { error: true, message: "Invalid URL format" };
+        }
 
-      return await crawlPage(job.data);
-    } finally {
-      activeUrlCount = Math.max(0, activeUrlCount - 1);
+        if (await services.redisService.isUrlProcessed(crawlId, normalizedUrl)) {
+          return { skipped: true, url: normalizedUrl };
+        }
+
+        await setupJobProcessing(crawlId, job.id!, normalizedUrl);
+        console.log(`Crawling page: ${normalizedUrl} (Active URLs: ${activeUrlCount})`);
+
+        return await crawlPage(job.data);
+      } finally {
+        activeUrlCount = Math.max(0, activeUrlCount - 1);
+      }
+    } catch (error: any) {
+      console.log("Worker level error:", error);
+      return { error: true, message: error };
     }
   },
   {
