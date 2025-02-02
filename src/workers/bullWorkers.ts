@@ -156,6 +156,13 @@ async function processCompletedJob(
   });
 
   if (upsertError) {
+    if (upsertError.code === "PGRST116") {
+      console.log(`Crawl job ${crawlId} no longer exists in database`);
+      await services.redisService.clearActiveJobs(jobId);
+      await services.queueService.removeJob(crawlId);
+      // Maybe add logic to clean up this worker
+      return;
+    }
     console.log("ERROR UPSERTING PAGE", upsertError);
     throw upsertError;
   }
