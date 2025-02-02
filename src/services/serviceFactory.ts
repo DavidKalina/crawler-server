@@ -12,7 +12,6 @@ export interface Services {
   wsService: typeof wsService;
   queueService: QueueService;
   dbService: DatabaseService;
-  queueUpdateService: QueueUpdateService;
   healthService: HealthService;
   redisService: RedisService;
 }
@@ -38,14 +37,12 @@ export class ServiceFactory {
       console.log("ServiceFactory: Creating services");
       const dbService = new DatabaseService(supabase);
       const redisService = new RedisService();
-      const queueUpdateService = new QueueUpdateService(wsService, queueService, dbService);
       const healthService = new HealthService(crawlQueue, supabase);
 
       this.services = {
         wsService,
         queueService,
         dbService,
-        queueUpdateService,
         healthService,
         redisService,
       };

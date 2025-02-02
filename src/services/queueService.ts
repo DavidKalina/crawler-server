@@ -66,7 +66,6 @@ export class QueueService {
       await crawlQueue.clean(0, 0, "delayed");
 
       // Broadcast queue update
-      await services.queueUpdateService.broadcastQueueUpdate();
     } catch (error) {
       console.error(`[QueueService] Error stopping crawl ${crawlId}:`, error);
       throw error;

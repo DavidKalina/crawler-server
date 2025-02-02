@@ -65,7 +65,6 @@ export class JobScheduler {
             userId: job.user_id,
           });
           console.log(`Scheduled job ${job.id} for user ${job.user_id}`);
-          await this.services.queueUpdateService.broadcastQueueUpdate();
 
           // Optionally, update the job status here if you want to keep your DB in sync
           // await supabase.from("web_crawl_jobs").update({ status: "active" }).eq("id", job.id);

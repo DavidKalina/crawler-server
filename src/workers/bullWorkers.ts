@@ -87,7 +87,6 @@ worker.on("failed", async (job, error) => {
       await services.dbService.incrementErrorsCount(crawlId);
     }
   }
-  await serviceFactory.getServices().queueUpdateService.broadcastQueueUpdate();
 });
 
 async function shouldDelayJob(job: Job): Promise<boolean> {
