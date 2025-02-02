@@ -74,10 +74,10 @@ router.post("/stop/:jobId", verifyAuth, async (req, res) => {
     });
     return;
   } catch (error) {
-    console.log(error);
-    console.error("Failed to stop crawl job:", error);
+    console.log(error, jobId);
+    console.error("Failure to stop crawl job:", error);
     res.status(500).json({
-      error: "Failed to stop crawl job",
+      error: "Failure to stop crawl job",
       details: error instanceof Error ? error.message : "Unknown error",
     });
     return;
