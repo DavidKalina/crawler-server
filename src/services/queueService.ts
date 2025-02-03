@@ -26,43 +26,45 @@ export class QueueService {
     const services = serviceFactory.getServices();
 
     try {
-      // 1. Mark the crawl as stopping in database
+      // Mark as stopping in DB first
       await services.dbService.updateJobStatus(crawlId, "stopping", {
         stop_requested_at: new Date().toISOString(),
       });
 
-      // 2. Clear Redis tracking
-      await services.redisService.clearActiveJobs(crawlId);
-
-      // 3. Get all jobs for this crawl
+      // Get all jobs for this crawl
       const crawlJobs = await this.getJobsByCrawlId(crawlId);
 
-      // 4. Handle different job states
-      const waitingJobs = crawlJobs.filter((job) => job.state === "waiting");
-      const delayedJobs = crawlJobs.filter((job) => job.state === "delayed");
-      const activeJobs = crawlJobs.filter((job) => job.state === "active");
+      // Handle different job states
+      for (const job of crawlJobs) {
+        try {
+          const actualJob = await crawlQueue.getJob(job.id);
+          if (!actualJob) continue;
 
-      // Attempt to remove waiting and delayed jobs
-      await Promise.allSettled([
-        ...waitingJobs.map((job) => this.removeJob(job.id)),
-        ...delayedJobs.map((job) => this.removeJob(job.id)),
-      ]);
+          const state = await actualJob.getState();
 
-      // For active jobs, mark them all for stopping
-      if (activeJobs.length > 0) {
-        await Promise.all(
-          activeJobs.map((job) => services.redisService.markJobForStopping(job.id))
-        );
-        console.log(`[QueueService] ${activeJobs.length} active jobs marked for stopping`);
+          if (state === "active") {
+            // For active jobs, try to move to failed state to release lock
+            try {
+              await actualJob.moveToFailed(new Error("Job canceled"), true);
+              await services.redisService.markJobForStopping(job.id);
+            } catch (err) {
+              console.log(`Could not move job ${job.id} to failed: ${err}`);
+            }
+          } else {
+            // For non-active jobs, remove them
+            try {
+              await actualJob.remove();
+            } catch (err) {
+              console.log(`Could not remove job ${job.id}: ${err}`);
+            }
+          }
+        } catch (err) {
+          console.error(`Error processing job ${job.id}:`, err);
+        }
       }
 
-      // Clean delayed jobs from queue
-      await crawlQueue.clean(0, 0, "delayed");
-
-      const removedCount = waitingJobs.length + delayedJobs.length;
-      console.log(
-        `[QueueService] Removed ${removedCount} waiting/delayed jobs; ${activeJobs.length} active jobs will complete naturally`
-      );
+      // Clear Redis tracking last
+      await services.redisService.clearActiveJobs(crawlId);
     } catch (error) {
       console.error(`[QueueService] Error stopping crawl ${crawlId}:`, error);
       throw error;

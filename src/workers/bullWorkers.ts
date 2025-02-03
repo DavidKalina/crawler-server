@@ -108,6 +108,20 @@ worker.on("completed", async (job, result: CrawlResult) => {
   }
 });
 
+worker.on("closed", async () => {
+  // Clean up any active jobs
+  const activeJobs = await crawlQueue.getActive();
+  await Promise.all(
+    activeJobs.map(async (job) => {
+      try {
+        await job.moveToFailed(new Error("Worker shutdown"), true);
+      } catch (err) {
+        console.error(`Failed to clean up job ${job.id}:`, err);
+      }
+    })
+  );
+});
+
 worker.on("failed", async (job, error) => {
   try {
     if (job) {
