@@ -27,14 +27,13 @@ export class JobScheduler {
 
   private async checkAndScheduleJobs() {
     try {
+      // ---------------------------
+      // 1. Schedule Pending Jobs
+      // ---------------------------
       // Retrieve the waiting jobs from BullMQ
-      // (Assuming getWaitingJobs returns an array of job objects with an `id` property)
       const waitingJobs = await this.services.queueService.getWaitingJobs();
 
       // Fetch the earliest pending job from your database
-
-      try {
-      } catch (error) {}
       const { data: pendingJobs, error: jobError } = await supabase
         .from("web_crawl_jobs")
         .select("*")
@@ -47,11 +46,6 @@ export class JobScheduler {
         return;
       }
 
-      if (!pendingJobs) {
-        console.log("No jobs pending jobs:", jobError);
-        return;
-      }
-
       if (pendingJobs?.[0]) {
         const job = pendingJobs[0];
 
@@ -60,26 +54,57 @@ export class JobScheduler {
 
         if (isAlreadyQueued) {
           console.log(`Job ${job.id} is already in the waiting queue. Skipping scheduling.`);
-          return;
+        } else {
+          // Schedule the job
+          try {
+            await this.services.queueService.addJob({
+              id: job.id,
+              url: job.start_url,
+              maxDepth: job.max_depth,
+              currentDepth: 0,
+              userId: job.user_id,
+            });
+            console.log(`Scheduled job ${job.id} for user ${job.user_id}`);
+          } catch (error) {
+            console.error(`Error adding job ${job.id} to queue:`, error);
+          }
         }
+      }
 
-        // If not queued yet, schedule the job
-        try {
-          await this.services.queueService.addJob({
-            id: job.id,
-            url: job.start_url,
-            maxDepth: job.max_depth,
-            currentDepth: 0,
-            userId: job.user_id,
-          });
-          console.log(`Scheduled job ${job.id} for user ${job.user_id}`);
+      // ---------------------------
+      // 2. Check for Cancelled (Stopping) Jobs
+      // ---------------------------
+      // Fetch jobs that have been marked as "stopping" (with stop_requested_at set)
+      const { data: stoppingJobs, error: stoppingError } = await supabase
+        .from("web_crawl_jobs")
+        .select("*")
+        .eq("status", "stopping")
+        // This condition ensures we're only looking at jobs that have been requested to stop.
+        .not("stop_requested_at", "is", null);
 
-          // Optionally, update the job status here if you want to keep your DB in sync
-          // await supabase.from("web_crawl_jobs").update({ status: "active" }).eq("id", job.id);
-        } catch (error) {
-          console.error(`Error adding job ${job.id} to queue:`, error);
-          // Optionally revert job status if necessary:
-          // await supabase.from("web_crawl_jobs").update({ status: "pending" }).eq("id", job.id);
+      if (stoppingError) {
+        console.error("Error fetching stopping jobs:", stoppingError);
+      } else if (stoppingJobs && stoppingJobs.length > 0) {
+        for (const job of stoppingJobs) {
+          // Check if there are any active jobs for this crawl (using the job id as the crawl id)
+          const activeCount = await this.services.redisService.getActiveJobCount(job.id);
+          if (activeCount === 0) {
+            // No active jobs remain—update status to "canceled"
+            const { error: updateError } = await supabase
+              .from("web_crawl_jobs")
+              .update({
+                status: "canceled",
+                completed_at: new Date().toISOString(),
+              })
+              .eq("id", job.id);
+            if (updateError) {
+              console.error(`Error updating job ${job.id} to canceled:`, updateError);
+            } else {
+              console.log(`Job ${job.id} successfully updated to canceled.`);
+            }
+          } else {
+            console.log(`Job ${job.id} still has ${activeCount} active jobs. Waiting to cancel.`);
+          }
         }
       }
     } catch (error) {
@@ -88,5 +113,5 @@ export class JobScheduler {
   }
 }
 
-// Create singleton instance
+// Create a singleton instance of the job scheduler.
 export const jobScheduler = new JobScheduler();
