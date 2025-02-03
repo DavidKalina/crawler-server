@@ -33,8 +33,8 @@ const worker = new Worker(
       const { id: crawlId, url, maxDepth, priority = 1 } = job.data;
 
       if (await services.redisService.isJobMarkedForStopping(crawlId)) {
-        console.log(`Job ${job.id} is marked for stopping, skipping processing`);
-        return { skipped: true, message: "Job was marked for stopping" };
+        console.log(`Job ${job.id} is marked for stopping, aborting processing`);
+        throw new Error("Job canceled");
       }
 
       if (await services.queueService.isJobStopping(crawlId)) {
@@ -109,14 +109,20 @@ worker.on("completed", async (job, result: CrawlResult) => {
 });
 
 worker.on("closed", async () => {
-  // Clean up any active jobs
   const activeJobs = await crawlQueue.getActive();
   await Promise.all(
     activeJobs.map(async (job) => {
       try {
-        await job.moveToFailed(new Error("Worker shutdown"), true);
-      } catch (err) {
-        console.error(`Failed to clean up job ${job.id}:`, err);
+        const state = await job.getState();
+        if (state === "active") {
+          await job.moveToFailed(new Error("Worker shutdown"), true);
+        }
+      } catch (err: any) {
+        if (err.message.includes("Missing lock")) {
+          // Ignore missing lock errors
+        } else {
+          console.error(`Failed to clean up job ${job.id}:`, err);
+        }
       }
     })
   );
@@ -302,6 +308,16 @@ async function switchToHigherPriorityCrawl(newCrawlId: string, newPriority: numb
 
 process.on("SIGTERM", async () => {
   await worker.close();
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception:", error);
+  // Optionally perform cleanup and decide whether to exit
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
+  // Optionally perform cleanup and decide whether to exit
 });
 
 export default worker;
