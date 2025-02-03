@@ -56,15 +56,6 @@ export class QueueService {
         `[QueueService] Removed ${jobsToRemove.length} waiting/delayed jobs; active jobs will complete naturally`
       );
 
-      // 5. Optionally, if no active jobs remain, mark the crawl as stopped immediately.
-      const activeJobs = crawlJobs.filter((job) => job.state === "active");
-      if (activeJobs.length === 0) {
-        await services.dbService.updateJobStatus(crawlId, "canceled", {
-          completed_at: new Date().toISOString(),
-        });
-      }
-
-      // 6. Clean up any delayed jobs in the queue.
       await crawlQueue.clean(0, 0, "delayed");
     } catch (error) {
       console.error(`[QueueService] Error stopping crawl ${crawlId}:`, error);
