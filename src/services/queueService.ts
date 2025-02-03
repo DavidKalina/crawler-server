@@ -36,12 +36,8 @@ export class QueueService {
       // Get all jobs for this crawl
       const crawlJobs = await this.getJobsByCrawlId(crawlId);
 
-      // Remove all non-active jobs
-      const nonActiveJobs = crawlJobs.filter((job) => job.state !== "active");
-      console.log(`[QueueService] Removing ${nonActiveJobs.length} non-active jobs`);
-
       await Promise.all(
-        nonActiveJobs.map(async (job) => {
+        crawlJobs.map(async (job) => {
           try {
             await this.removeJob(job.id);
           } catch (error) {
@@ -51,12 +47,11 @@ export class QueueService {
       );
 
       // Count remaining active jobs
-      const activeJobs = crawlJobs.filter((job) => job.state === "active");
 
-      console.log(`[QueueService] ${activeJobs.length} active jobs will complete naturally`);
+      console.log(`[QueueService] ${crawlJobs.length} active jobs will complete naturally`);
 
       // If no active jobs, mark as stopped immediately
-      if (activeJobs.length === 0) {
+      if (crawlJobs.length === 0) {
         await services.dbService.updateJobStatus(crawlId, "canceled", {
           completed_at: new Date().toISOString(),
         });
