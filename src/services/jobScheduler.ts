@@ -88,6 +88,9 @@ export class JobScheduler {
         for (const job of stoppingJobs) {
           // Check if there are any active jobs for this crawl (using the job id as the crawl id)
           const activeCount = await this.services.redisService.getActiveJobCount(job.id);
+
+          await this.services.redisService.clearActiveJobs(job.id);
+
           if (activeCount === 0) {
             // No active jobs remain—update status to "canceled"
             const { error: updateError } = await supabase
@@ -101,6 +104,7 @@ export class JobScheduler {
               console.error(`Error updating job ${job.id} to canceled:`, updateError);
             } else {
               console.log(`Job ${job.id} successfully updated to canceled.`);
+              await this.services.redisService.cleanup(job.id);
             }
           } else {
             console.log(`Job ${job.id} still has ${activeCount} active jobs. Waiting to cancel.`);
