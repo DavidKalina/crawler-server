@@ -32,6 +32,11 @@ const worker = new Worker(
       const services = serviceFactory.getServices();
       const { id: crawlId, url, maxDepth, priority = 1 } = job.data;
 
+      if (await services.redisService.isJobMarkedForStopping(crawlId)) {
+        console.log(`Job ${job.id} is marked for stopping, skipping processing`);
+        return { skipped: true, message: "Job was marked for stopping" };
+      }
+
       if (await services.queueService.isJobStopping(crawlId)) {
         console.log(`Crawl ${crawlId} is stopping. Skipping job ${job.id}`);
         return { skipped: true, message: "Crawl is stopping or stopped" };

@@ -132,6 +132,19 @@ export class RedisService {
     await pipeline.exec();
   }
 
+  async markJobForStopping(jobId: string): Promise<void> {
+    const key = `job:${jobId}:stopping`;
+    await this.redis.set(key, "1");
+    // Optional: Set an expiry to clean up automatically
+    await this.redis.expire(key, 60 * 60); // 1 hour expiry
+  }
+
+  async isJobMarkedForStopping(jobId: string): Promise<boolean> {
+    const key = `job:${jobId}:stopping`;
+    const value = await this.redis.get(key);
+    return value === "1";
+  }
+
   // Helper method to check if a crawl is active
   async isCrawlActive(crawlId: string): Promise<boolean> {
     const key = this.getActiveJobsKey(crawlId);

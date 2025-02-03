@@ -26,7 +26,7 @@ export class QueueService {
     const services = serviceFactory.getServices();
 
     try {
-      // 1. Mark the crawl as stopping in your database
+      // 1. Mark the crawl as stopping in database
       await services.dbService.updateJobStatus(crawlId, "stopping", {
         stop_requested_at: new Date().toISOString(),
       });
@@ -37,29 +37,31 @@ export class QueueService {
       // 3. Get all jobs for this crawl
       const crawlJobs = await this.getJobsByCrawlId(crawlId);
 
-      // 4. Handle different job states separately
+      // 4. Handle different job states
       const waitingJobs = crawlJobs.filter((job) => job.state === "waiting");
       const delayedJobs = crawlJobs.filter((job) => job.state === "delayed");
       const activeJobs = crawlJobs.filter((job) => job.state === "active");
 
-      // Remove waiting and delayed jobs
+      // Attempt to remove waiting and delayed jobs
       await Promise.allSettled([
         ...waitingJobs.map((job) => this.removeJob(job.id)),
         ...delayedJobs.map((job) => this.removeJob(job.id)),
       ]);
 
-      // Log status of active jobs
+      // For active jobs, mark them all for stopping
       if (activeJobs.length > 0) {
-        console.log(`[QueueService] ${activeJobs.length} active jobs will complete naturally`);
+        await Promise.all(
+          activeJobs.map((job) => services.redisService.markJobForStopping(job.id))
+        );
+        console.log(`[QueueService] ${activeJobs.length} active jobs marked for stopping`);
       }
 
       // Clean delayed jobs from queue
       await crawlQueue.clean(0, 0, "delayed");
 
+      const removedCount = waitingJobs.length + delayedJobs.length;
       console.log(
-        `[QueueService] Removed ${waitingJobs.length + delayedJobs.length} waiting/delayed jobs; ${
-          activeJobs.length
-        } active jobs will complete naturally`
+        `[QueueService] Removed ${removedCount} waiting/delayed jobs; ${activeJobs.length} active jobs will complete naturally`
       );
     } catch (error) {
       console.error(`[QueueService] Error stopping crawl ${crawlId}:`, error);
@@ -124,40 +126,41 @@ export class QueueService {
   }
 
   async removeJob(jobId: string): Promise<void> {
+    const services = serviceFactory.getServices();
+
     console.log(`[QueueService] Attempting to remove job ${jobId}`);
     try {
-      const job: Job = await crawlQueue.getJob(jobId);
+      const job = await crawlQueue.getJob(jobId);
       if (job) {
         const state = await job.getState();
 
-        // If job is active, mark it for stopping but don't force remove
+        // If job is active, we can't remove it - mark it for stopping instead
         if (state === "active") {
           console.log(`[QueueService] Job ${jobId} is active, marking for stopping`);
-          // You can set a flag in Redis or your DB to mark this job for stopping
+          // Store in Redis/DB that this job should stop
+          await services.redisService.markJobForStopping(jobId);
           return;
         }
 
-        // For non-active jobs, try to remove with increasing levels of force
+        // For non-active jobs, attempt removal
         try {
-          // First try normal removal
           await job.remove();
+          console.log(`[QueueService] Successfully removed job ${jobId}`);
         } catch (error: any) {
-          // If normal removal fails, try with force option
           if (error.message.includes("locked")) {
-            console.log(`[QueueService] Job ${jobId} is locked, attempting force remove`);
-            await job.remove();
+            console.log(`[QueueService] Job ${jobId} is locked, cannot remove`);
+            // Since we can't force remove, mark it for stopping instead
+            await services.redisService.markJobForStopping(jobId);
           } else {
             throw error;
           }
         }
-
-        console.log(`[QueueService] Successfully removed job ${jobId}`);
       } else {
         console.log(`[QueueService] Job ${jobId} not found`);
       }
     } catch (error) {
       console.error(`[QueueService] Error removing job ${jobId}:`, error);
-      // Don't throw the error - just log it and continue
+      // Log error but don't throw
     }
   }
 
