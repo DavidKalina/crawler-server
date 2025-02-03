@@ -26,18 +26,24 @@ export class QueueService {
     const services = serviceFactory.getServices();
 
     try {
-      // Update job status to stopping
+      // 1. Mark the crawl as stopping.
       await services.dbService.updateJobStatus(crawlId, "stopping", {
         stop_requested_at: new Date().toISOString(),
       });
 
+      // 2. Clear any active job tracking (this is your Redis bookkeeping).
       await services.redisService.clearActiveJobs(crawlId);
 
-      // Get all jobs for this crawl
+      // 3. Retrieve all jobs for this crawl.
       const crawlJobs = await this.getJobsByCrawlId(crawlId);
 
+      // 4. Filter out jobs that are still in waiting or delayed states.
+      const jobsToRemove = crawlJobs.filter(
+        (job) => job.state === "waiting" || job.state === "delayed"
+      );
+
       await Promise.all(
-        crawlJobs.map(async (job) => {
+        jobsToRemove.map(async (job) => {
           try {
             await this.removeJob(job.id);
           } catch (error) {
@@ -46,21 +52,20 @@ export class QueueService {
         })
       );
 
-      // Count remaining active jobs
+      console.log(
+        `[QueueService] Removed ${jobsToRemove.length} waiting/delayed jobs; active jobs will complete naturally`
+      );
 
-      console.log(`[QueueService] ${crawlJobs.length} active jobs will complete naturally`);
-
-      // If no active jobs, mark as stopped immediately
-      if (crawlJobs.length === 0) {
+      // 5. Optionally, if no active jobs remain, mark the crawl as stopped immediately.
+      const activeJobs = crawlJobs.filter((job) => job.state === "active");
+      if (activeJobs.length === 0) {
         await services.dbService.updateJobStatus(crawlId, "canceled", {
           completed_at: new Date().toISOString(),
         });
       }
 
-      // Clean up any delayed jobs
+      // 6. Clean up any delayed jobs in the queue.
       await crawlQueue.clean(0, 0, "delayed");
-
-      // Broadcast queue update
     } catch (error) {
       console.error(`[QueueService] Error stopping crawl ${crawlId}:`, error);
       throw error;

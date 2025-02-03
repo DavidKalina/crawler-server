@@ -32,6 +32,11 @@ const worker = new Worker(
       const services = serviceFactory.getServices();
       const { id: crawlId, url, maxDepth, priority = 1 } = job.data;
 
+      if (await services.queueService.isJobStopping(crawlId)) {
+        console.log(`Crawl ${crawlId} is stopping. Skipping job ${job.id}`);
+        return { skipped: true, message: "Crawl is stopping or stopped" };
+      }
+
       const { data: crawl, error } = await supabase
         .from("web_crawl_jobs")
         .select("id")
