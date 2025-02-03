@@ -71,7 +71,7 @@ const worker = new Worker(
         }
 
         await setupJobProcessing(crawlId, job.id!, normalizedUrl);
-        console.log(`Crawling page: ${normalizedUrl} (Active URLs: ${activeUrlCount})`);
+        // console.log(`Crawling page: ${normalizedUrl} (Active URLs: ${activeUrlCount})`);
 
         return await crawlPage(job.data);
       } finally {

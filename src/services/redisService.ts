@@ -21,13 +21,13 @@ export class RedisService {
   async isUrlProcessed(crawlId: string, url: string): Promise<boolean> {
     const key = this.getUrlSetKey(crawlId);
     const result = (await this.redis.sismember(key, url)) === 1;
-    console.log(`Checking if URL is processed: ${url}, Result: ${result}`);
+    // console.log(`Checking if URL is processed: ${url}, Result: ${result}`);
     return result;
   }
 
   async addProcessedUrl(crawlId: string, url: string): Promise<void> {
     const key = this.getUrlSetKey(crawlId);
-    console.log(`Adding URL to Redis processed set: ${url}`);
+    // console.log(`Adding URL to Redis processed set: ${url}`);
     await this.redis.sadd(key, url);
   }
 
@@ -38,15 +38,15 @@ export class RedisService {
 
   async clearActiveJobs(crawlId: string): Promise<void> {
     const key = this.getActiveJobsKey(crawlId);
-    console.log(`[RedisService] Clearing active jobs for crawl ${crawlId}`);
+    // console.log(`[RedisService] Clearing active jobs for crawl ${crawlId}`);
 
     // Get current active jobs for logging
     const activeJobs = await this.getActiveJobs(crawlId);
-    console.log(`[RedisService] Found ${Object.keys(activeJobs).length} active jobs to clear`);
+    // console.log(`[RedisService] Found ${Object.keys(activeJobs).length} active jobs to clear`);
 
     // Delete the active jobs hash
     await this.redis.del(key);
-    console.log(`[RedisService] Cleared active jobs for crawl ${crawlId}`);
+    // console.log(`[RedisService] Cleared active jobs for crawl ${crawlId}`);
   }
 
   async addProcessedUrls(crawlId: string, urls: string[]): Promise<void> {
@@ -60,7 +60,7 @@ export class RedisService {
     const key = this.getUrlSetKey(crawlId);
     const pipeline = this.redis.pipeline();
 
-    console.log(`[Debug] Checking ${urls.length} URLs in Redis set ${key}`);
+    // console.log(`[Debug] Checking ${urls.length} URLs in Redis set ${key}`);
 
     urls.forEach((url) => {
       pipeline.sismember(key, url);
@@ -69,7 +69,7 @@ export class RedisService {
     const results = await pipeline.exec();
     const processed = results!.map(([err, result]) => result === 1);
 
-    console.log(`[Debug] Found ${processed.filter(Boolean).length} already processed URLs`);
+    // console.log(`[Debug] Found ${processed.filter(Boolean).length} already processed URLs`);
 
     return processed;
   }
